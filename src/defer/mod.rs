@@ -1,0 +1,44 @@
+pub struct Guard<F: FnMut()>(pub Option<F>);
+
+impl<F: FnMut()> Drop for Guard<F> {
+    fn drop(&mut self) {
+        if let Some(mut f) = (self.0).take() {
+            f()
+        }
+    }
+}
+
+/// Defers evaluation of a block of code until the end of the scope.
+/// Sort of LIFO(last-in, first-out queue)
+/// If you encounter references to resources that cannot mut more than 2 times, try nesting RefCell and then use.borrow() and.borrow_mut().
+///
+/// for example:
+/// ```
+///  use mco::defer;
+///  //LIFO, so it will print: guard: 3  guard: 2   guard: 1
+///  fn main(){
+///     defer!({
+///        println!("guard: 1");
+///        });
+///     defer!(||{
+///        println!("guard: 2");
+///        });
+///     defer!{
+///        println!("guard: 3");
+///     }
+/// }
+/// ```
+///
+///
+#[macro_export]
+macro_rules! defer {
+    ($func:block) => {
+       let _guard = $crate::std::defer::Guard(Some( ||$func));
+    };
+    ($func:expr) => {
+        let _guard = $crate::std::defer::Guard(Some($func));
+    };
+    { $($func:expr$(;)?)+ } => {
+       let _guard = $crate::std::defer::Guard(Some( ||{$($func;)+}));
+    }
+}
