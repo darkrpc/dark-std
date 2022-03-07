@@ -184,7 +184,7 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     /// # Examples
     ///
     /// ```
-    /// use mco::std::sync::{SyncHashMap};
+    /// use dark_std::sync::{SyncHashMap};
     ///
     /// let map = SyncHashMap::new();
     /// map.insert(1, "a");

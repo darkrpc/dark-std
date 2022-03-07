@@ -14,7 +14,7 @@ impl<F: FnMut()> Drop for Guard<F> {
 ///
 /// for example:
 /// ```
-///  use mco::defer;
+///  use dark_std::defer;
 ///  //LIFO, so it will print: guard: 3  guard: 2   guard: 1
 ///  fn main(){
 ///     defer!({
