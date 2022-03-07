@@ -135,6 +135,7 @@ mod test{
 
     #[test]
     fn test_error(){
-        err!("e");
+        let e = err!("e");
+        assert_eq!(e.to_string(),"e");
     }
 }
