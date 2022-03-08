@@ -100,6 +100,23 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
         }
     }
 
+    pub fn insert_mut(&mut self, k: K, v: V) -> Option<V> where K: Clone {
+        let mut m = self.dirty.get_mut();
+        let op = m.insert(k.clone(), v);
+        match op {
+            None => {
+                let r = m.get(&k);
+                unsafe {
+                    (&mut *self.read.get()).insert(k, std::mem::transmute_copy(r.unwrap()));
+                }
+                None
+            }
+            Some(v) => {
+                Some(v)
+            }
+        }
+    }
+
     pub async fn remove(&self, k: &K) -> Option<V> where K: Clone {
         let mut m = self.dirty.lock().await;
         let op = m.remove(k);
@@ -121,6 +138,29 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
             }
         }
     }
+
+    pub fn remove_mut(&mut self, k: &K) -> Option<V> where K: Clone {
+        let mut m = self.dirty.get_mut();
+        let op = m.remove(k);
+        match op {
+            Some(v) => {
+                unsafe {
+                    let r = (&mut *self.read.get()).remove(k);
+                    match r {
+                        None => {}
+                        Some(r) => {
+                            std::mem::forget(r);
+                        }
+                    }
+                }
+                Some(v)
+            }
+            None => {
+                None
+            }
+        }
+    }
+
 
     pub fn len(&self) -> usize {
         unsafe {
@@ -186,8 +226,8 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     /// ```
     /// use dark_std::sync::{SyncHashMap};
     ///
-    /// let map = SyncHashMap::new();
-    /// map.insert(1, "a");
+    /// let mut map = SyncHashMap::new();
+    /// map.insert_mut(1, "a");
     /// assert_eq!(*map.get(&1).unwrap(), "a");
     /// assert_eq!(map.get(&2).is_none(), true);
     /// ```
@@ -230,7 +270,7 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     }
 
     pub async fn iter_mut(&self) -> IterMut<'_, K, V> {
-        let mut m= self.dirty.lock().await;
+        let mut m = self.dirty.lock().await;
         let mut iter = IterMut {
             g: m,
             inner: None,

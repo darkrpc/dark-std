@@ -83,8 +83,40 @@ impl<V> SyncVecImpl<V> {
         None
     }
 
+    pub fn push_mut(&mut self, v: V) -> Option<V> {
+        let mut m = self.dirty.get_mut();
+        m.push(v);
+        let len = m.len();
+        unsafe {
+            let r = m.get_unchecked(len - 1);
+            (&mut *self.read.get()).push(std::ptr::read(r));
+        }
+        None
+    }
+
     pub async fn pop(&self) -> Option<V> {
         let mut m = self.dirty.lock().await;
+        match m.pop() {
+            None => {
+                return None;
+            }
+            Some(s) => {
+                unsafe {
+                    let r = (&mut *self.read.get()).pop();
+                    match r {
+                        None => {}
+                        Some(r) => {
+                            std::mem::forget(r);
+                        }
+                    }
+                }
+                return Some(s);
+            }
+        }
+    }
+
+    pub fn pop_mut(&mut self) -> Option<V> {
+        let mut m = self.dirty.get_mut();
         match m.pop() {
             None => {
                 return None;
