@@ -33,12 +33,22 @@ impl<F: FnMut()> Drop for Guard<F> {
 #[macro_export]
 macro_rules! defer {
     ($func:block) => {
-       let _guard = $crate::std::defer::Guard(Some( ||$func));
+       let _guard = $crate::defer::Guard(Some( ||$func));
     };
     ($func:expr) => {
-        let _guard = $crate::std::defer::Guard(Some($func));
+        let _guard = $crate::defer::Guard(Some($func));
     };
     { $($func:expr$(;)?)+ } => {
-       let _guard = $crate::std::defer::Guard(Some( ||{$($func;)+}));
+       let _guard = $crate::defer::Guard(Some( ||{$($func;)+}));
+    }
+}
+
+#[cfg(test)]
+mod test{
+    #[test]
+    fn test_defer(){
+        defer!(||{
+           println!("defer");
+        });
     }
 }
