@@ -191,8 +191,33 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
         }
     }
 
+    pub fn clear_mut(&mut self) {
+        let mut m = self.dirty.get_mut();
+        m.clear();
+        unsafe {
+            let k = (&mut *self.read.get()).keys().clone();
+            for x in k {
+                let v = (&mut *self.read.get()).remove(x);
+                match v {
+                    None => {}
+                    Some(v) => {
+                        std::mem::forget(v);
+                    }
+                }
+            }
+        }
+    }
+
     pub async fn shrink_to_fit(&self) {
         let mut m = self.dirty.lock().await;
+        unsafe {
+            (&mut *self.read.get()).shrink_to_fit()
+        }
+        m.shrink_to_fit()
+    }
+
+    pub async fn shrink_to_fit_mut(&mut self) {
+        let mut m = self.dirty.get_mut();
         unsafe {
             (&mut *self.read.get()).shrink_to_fit()
         }

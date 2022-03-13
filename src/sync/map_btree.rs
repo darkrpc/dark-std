@@ -190,7 +190,26 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Ha
         }
     }
 
+    pub fn clear_mut(&mut self) where K: std::cmp::Eq + Hash + Clone + std::cmp::Ord {
+        let mut m = self.dirty.get_mut();
+        m.clear();
+        unsafe {
+            let k = (&mut *self.read.get()).keys().clone();
+            for x in k {
+                let v = (&mut *self.read.get()).remove(x);
+                match v {
+                    None => {}
+                    Some(v) => {
+                        std::mem::forget(v);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn shrink_to_fit(&self) {}
+
+    pub fn shrink_to_fit_mut(&mut self) {}
 
     pub fn from(map: HashMap<K, V>) -> Self where K: Clone + Eq + Hash + std::cmp::Ord {
         let mut s = Self::new();
