@@ -102,7 +102,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Ha
         }
     }
 
-    pub fn insert_mut(&mut self, k: K, v: V) -> Option<V> where K: Clone + std::cmp::Ord {
+    pub async fn insert_mut(&mut self, k: K, v: V) -> Option<V> where K: Clone + std::cmp::Ord {
         let mut m= self.dirty.get_mut();
         let op = m.insert(k.clone(), v);
         match op {
