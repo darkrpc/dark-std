@@ -100,7 +100,7 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
         }
     }
 
-    pub async fn insert_mut(&mut self, k: K, v: V) -> Option<V> where K: Clone {
+    pub fn insert_mut(&mut self, k: K, v: V) -> Option<V> where K: Clone {
         let mut m = self.dirty.get_mut();
         let op = m.insert(k.clone(), v);
         match op {
@@ -226,13 +226,10 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     /// ```
     /// use dark_std::sync::{SyncHashMap};
     ///
-    /// #[tokio::main]
-    /// async fn main(){
     /// let mut map = SyncHashMap::new();
-    /// map.insert_mut(1, "a").await;
+    /// map.insert_mut(1, "a");
     /// assert_eq!(*map.get(&1).unwrap(), "a");
     /// assert_eq!(map.get(&2).is_none(), true);
-    /// }
     /// ```
     pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
         where

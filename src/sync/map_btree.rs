@@ -8,11 +8,9 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::{Arc, LockResult};
 use std::time::Duration;
 use std::marker::PhantomData;
-
 use std::collections::{BTreeMap as Map, btree_map::IntoIter as IntoIter, btree_map::Iter as MapIter, btree_map::IterMut as MapIterMut, HashMap};
 use serde::{Deserializer, Serialize, Serializer};
 use serde::ser::SerializeMap;
-
 
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -102,7 +100,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Ha
         }
     }
 
-    pub async fn insert_mut(&mut self, k: K, v: V) -> Option<V> where K: Clone + std::cmp::Ord {
+    pub fn insert_mut(&mut self, k: K, v: V) -> Option<V> where K: Clone + std::cmp::Ord {
         let mut m = self.dirty.get_mut();
         let op = m.insert(k.clone(), v);
         match op {
@@ -219,15 +217,12 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Ha
     /// # Examples
     ///
     /// ```
-    /// use dark_std::sync::{SyncHashMap};
+    /// use dark_std::sync::{SyncBtreeMap};
     ///
-    /// #[tokio::main]
-    /// async fn main(){
-    /// let mut map = SyncHashMap::new();
-    /// map.insert_mut(1, "a").await;
+    /// let mut map = SyncBtreeMap::new();
+    /// map.insert_mut(1, "a");
     /// assert_eq!(*map.get(&1).unwrap(), "a");
     /// assert_eq!(map.get(&2).is_none(), true);
-    /// }
     /// ```
     pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
         where
