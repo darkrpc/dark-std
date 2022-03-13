@@ -226,10 +226,13 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     /// ```
     /// use dark_std::sync::{SyncHashMap};
     ///
+    /// #[tokio::main]
+    /// async fn main(){
     /// let mut map = SyncHashMap::new();
-    /// map.insert_mut(1, "a");
+    /// map.insert_mut(1, "a").await;
     /// assert_eq!(*map.get(&1).unwrap(), "a");
     /// assert_eq!(map.get(&2).is_none(), true);
+    /// }
     /// ```
     pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
         where

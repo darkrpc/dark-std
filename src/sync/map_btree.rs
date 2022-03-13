@@ -86,7 +86,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Ha
 
 
     pub async fn insert(&self, k: K, v: V) -> Option<V> where K: Clone + std::cmp::Ord {
-        let mut m= self.dirty.lock().await;
+        let mut m = self.dirty.lock().await;
         let op = m.insert(k.clone(), v);
         match op {
             None => {
@@ -103,7 +103,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Ha
     }
 
     pub async fn insert_mut(&mut self, k: K, v: V) -> Option<V> where K: Clone + std::cmp::Ord {
-        let mut m= self.dirty.get_mut();
+        let mut m = self.dirty.get_mut();
         let op = m.insert(k.clone(), v);
         match op {
             None => {
@@ -120,7 +120,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Ha
     }
 
     pub async fn remove(&self, k: &K) -> Option<V> where K: Clone + std::cmp::Ord {
-        let mut m= self.dirty.lock().await;
+        let mut m = self.dirty.lock().await;
         let op = m.remove(k);
         match op {
             Some(v) => {
@@ -142,7 +142,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Ha
     }
 
     pub fn remove_mut(&mut self, k: &K) -> Option<V> where K: Clone + std::cmp::Ord {
-        let mut m= self.dirty.get_mut();
+        let mut m = self.dirty.get_mut();
         let op = m.remove(k);
         match op {
             Some(v) => {
@@ -176,7 +176,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Ha
     }
 
     pub async fn clear(&self) where K: std::cmp::Eq + Hash + Clone + std::cmp::Ord {
-        let mut m= self.dirty.lock().await;
+        let mut m = self.dirty.lock().await;
         m.clear();
         unsafe {
             let k = (&mut *self.read.get()).keys().clone();
@@ -196,7 +196,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Ha
 
     pub fn from(map: HashMap<K, V>) -> Self where K: Clone + Eq + Hash + std::cmp::Ord {
         let mut s = Self::new();
-        let mut m=s.dirty.get_mut();
+        let mut m = s.dirty.get_mut();
         *m = map;
         unsafe {
             for (k, v) in m.iter() {
@@ -221,10 +221,13 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Ha
     /// ```
     /// use dark_std::sync::{SyncHashMap};
     ///
-    /// let mut  map = SyncHashMap::new();
-    /// map.insert_mut(1, "a");
+    /// #[tokio::main]
+    /// async fn main(){
+    /// let mut map = SyncHashMap::new();
+    /// map.insert_mut(1, "a").await;
     /// assert_eq!(*map.get(&1).unwrap(), "a");
     /// assert_eq!(map.get(&2).is_none(), true);
+    /// }
     /// ```
     pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
         where
@@ -265,7 +268,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Ha
     }
 
     pub async fn iter_mut(&self) -> IterMut<'_, K, V> {
-        let mut m= self.dirty.lock().await;
+        let mut m = self.dirty.lock().await;
         let mut iter = IterMut {
             g: m,
             inner: None,
