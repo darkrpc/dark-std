@@ -67,7 +67,7 @@ unsafe impl<K: Eq + Hash + Clone + Ord, V> Send for SyncMapImpl<K, V> {}
 /// this is safety, dirty mutex ensure
 unsafe impl<K: Eq + Hash + Clone + Ord, V> Sync for SyncMapImpl<K, V> {}
 
-//TODO maybe K will use transmute_copy replace Clone?
+
 impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     pub fn new_arc() -> Arc<Self> {
         Arc::new(Self::new())
