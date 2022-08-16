@@ -2,10 +2,11 @@
 dark-std is an Implementation of asynchronous containers build on tokio.
 It uses a read-write separation design borrowed from Golang
 
-
-* SyncHashMap   asynchronous HashMap
-* SyncBtreeMap   asynchronous BtreeMap
-* SyncVec   asynchronous Vec
+* defer!          (defer macro)
+* SyncHashMap     (async HashMap)
+* SyncBtreeMap    (async BtreeMap)
+* SyncVec         (async Vec)
+* WaitGroup       (async/blocking all support WaitGroup)
 
 for example:
 ```rust
@@ -17,4 +18,28 @@ for example:
         let g = m.get(&1).unwrap();//don't need lock and await
         assert_eq!(&2, g);
     }
+```
+
+
+wait group:
+```rust
+use std::time::Duration;
+use tokio::time::sleep;
+use dark_std::sync::WaitGroup;
+#[tokio::test]
+async fn test_wg() {
+    let wg = WaitGroup::new();
+    let wg2 = wg.clone();
+    tokio::spawn(async move {
+        sleep(Duration::from_secs(1)).await;
+        wg2.done_async().await;
+    });
+    let wg2 = wg.clone();
+    tokio::spawn(async move {
+        sleep(Duration::from_secs(1)).await;
+        wg2.done_async().await;
+    });
+    wg.wait_async().await;
+    println!("all done");
+}
 ```
