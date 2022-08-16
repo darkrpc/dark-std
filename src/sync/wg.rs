@@ -34,11 +34,6 @@ impl WaitGroup {
         self.total.store(current + v, Ordering::SeqCst);
     }
 
-
-    pub async fn done_async(&self) {
-        let _ = self.send.send_async(1).await;
-    }
-
     pub async fn wait_async(&self) {
         let mut total;
         let mut current = 0;
@@ -58,13 +53,8 @@ impl WaitGroup {
         }
     }
 
-
-    pub fn done(&self) {
-        let _ = self.send.send(1);
-    }
-
     pub fn wait(&self) {
-        let mut total ;
+        let mut total;
         let mut current = 0;
         loop {
             match self.recv.recv() {
@@ -80,5 +70,11 @@ impl WaitGroup {
                 }
             }
         }
+    }
+}
+
+impl Drop for WaitGroup {
+    fn drop(&mut self) {
+        let _ = self.send.send(1);
     }
 }
