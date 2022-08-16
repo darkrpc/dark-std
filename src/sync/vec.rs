@@ -1,7 +1,6 @@
 use std::cell::UnsafeCell;
 use std::fmt::{Debug, Formatter};
-use std::ops::{Deref, DerefMut, Index, IndexMut};
-use std::slice::SliceIndex;
+use std::ops::{Deref, DerefMut, Index};
 use std::sync::Arc;
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use serde::{Deserializer, Serialize, Serializer};
@@ -84,7 +83,7 @@ impl<V> SyncVecImpl<V> {
     }
 
     pub fn push_mut(&mut self, v: V) -> Option<V> {
-        let mut m = self.dirty.get_mut();
+        let m = self.dirty.get_mut();
         m.push(v);
         let len = m.len();
         unsafe {
@@ -116,7 +115,7 @@ impl<V> SyncVecImpl<V> {
     }
 
     pub fn pop_mut(&mut self) -> Option<V> {
-        let mut m = self.dirty.get_mut();
+        let m = self.dirty.get_mut();
         match m.pop() {
             None => {
                 return None;
@@ -193,7 +192,7 @@ impl<V> SyncVecImpl<V> {
 
     pub fn from(map: Vec<V>) -> Self {
         let mut s = Self::with_capacity(map.capacity());
-        let mut m = s.dirty.get_mut();
+        let m = s.dirty.get_mut();
         *m = map;
         unsafe {
             for v in m.iter() {
@@ -219,15 +218,13 @@ impl<V> SyncVecImpl<V> {
 
     pub unsafe fn get_uncheck(&self, index: usize) -> Option<&V>
     {
-        unsafe {
-            let k = (&*self.read.get()).get_unchecked(index);
-            Some(k)
-        }
+        let k = (&*self.read.get()).get_unchecked(index);
+        Some(k)
     }
 
     pub async fn get_mut(&self, index: usize) -> Option<VecRefMut<'_, V>>
     {
-        let mut m = self.dirty.lock().await;
+        let m = self.dirty.lock().await;
         let mut r = VecRefMut {
             g: m,
             value: None,
@@ -245,7 +242,7 @@ impl<V> SyncVecImpl<V> {
     }
 
     pub async fn iter_mut(&self) -> IterMut<'_, V> {
-        let mut m = self.dirty.lock().await;
+        let m = self.dirty.lock().await;
         let mut iter = IterMut {
             g: m,
             inner: None,
@@ -365,7 +362,7 @@ impl<V> serde::Serialize for SyncVecImpl<V> where V: Serialize {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         let mut m = serializer.serialize_seq(Some(self.len()))?;
         for v in self.iter() {
-            m.serialize_element(v);
+            m.serialize_element(v)?;
         }
         m.end()
     }

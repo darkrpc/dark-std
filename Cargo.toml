@@ -13,4 +13,5 @@ readme = "README.md"
 time = { version = "0.3", features = ["formatting", "local-offset", "parsing", "serde"] }
 crossbeam = { version = "0.8", default-features = false, option = true }
 serde = "1.0"
+flume = {version="0.10",default-features = false,features = ["async"]}
 tokio = { version = "1.0", features = ["full"] }
