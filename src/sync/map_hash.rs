@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use std::collections::{HashMap as Map, hash_map::Iter as MapIter, hash_map::IterMut as MapIterMut};
+use std::collections::{HashMap as Map, hash_map::Iter as MapIter, hash_map::IterMut as MapIterMut, hash_map::IntoIter as MapIntoIter, HashMap};
 use serde::ser::SerializeMap;
 use serde::{Deserializer, Serialize, Serializer};
 
@@ -31,7 +31,7 @@ pub type SyncHashMap<K, V> = SyncMapImpl<K, V>;
 /// The zero Map is empty and ready for use. A Map must not be copied after first use.
 pub struct SyncMapImpl<K: Eq + Hash + Clone, V> {
     read: UnsafeCell<Map<K, V>>,
-    dirty: Mutex<Map<K, V>>,
+    dirty: Option<Mutex<Map<K, V>>>,
 }
 
 impl<K: Eq + Hash + Clone, V> Drop for SyncMapImpl<K, V> {
@@ -66,20 +66,23 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     pub fn new() -> Self {
         Self {
             read: UnsafeCell::new(Map::new()),
-            dirty: Mutex::new(Map::new()),
+            dirty: Some(Mutex::new(Map::new())),
         }
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             read: UnsafeCell::new(Map::with_capacity(capacity)),
-            dirty: Mutex::new(Map::with_capacity(capacity)),
+            dirty: Some(Mutex::new(Map::with_capacity(capacity))),
         }
     }
 
 
     pub async fn insert(&self, k: K, v: V) -> Option<V> where K: Clone {
-        let mut m = self.dirty.lock().await;
+        if self.dirty.is_none() {
+            return None;
+        }
+        let mut m = self.dirty.as_ref().unwrap().lock().await;
         let op = m.insert(k.clone(), v);
         match op {
             None => {
@@ -96,7 +99,7 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     }
 
     pub fn insert_mut(&mut self, k: K, v: V) -> Option<V> where K: Clone {
-        let m = self.dirty.get_mut();
+        let m = self.dirty.as_mut().expect("dirty is removed").get_mut();
         let op = m.insert(k.clone(), v);
         match op {
             None => {
@@ -113,7 +116,10 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     }
 
     pub async fn remove(&self, k: &K) -> Option<V> where K: Clone {
-        let mut m = self.dirty.lock().await;
+        if self.dirty.is_none() {
+            return None;
+        }
+        let mut m = self.dirty.as_ref().unwrap().lock().await;
         let op = m.remove(k);
         match op {
             Some(v) => {
@@ -135,7 +141,7 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     }
 
     pub fn remove_mut(&mut self, k: &K) -> Option<V> where K: Clone {
-        let m = self.dirty.get_mut();
+        let m = self.dirty.as_mut().expect("dirty is removed").get_mut();
         let op = m.remove(k);
         match op {
             Some(v) => {
@@ -170,7 +176,10 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     }
 
     pub async fn clear(&self) {
-        let mut m = self.dirty.lock().await;
+        if self.dirty.is_none() {
+            return;
+        }
+        let mut m = self.dirty.as_ref().unwrap().lock().await;
         m.clear();
         unsafe {
             let k = (&mut *self.read.get()).keys().clone();
@@ -187,7 +196,7 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     }
 
     pub fn clear_mut(&mut self) {
-        let m = self.dirty.get_mut();
+        let m = self.dirty.as_mut().expect("dirty is removed").get_mut();
         m.clear();
         unsafe {
             let k = (&mut *self.read.get()).keys().clone();
@@ -204,7 +213,10 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     }
 
     pub async fn shrink_to_fit(&self) {
-        let mut m = self.dirty.lock().await;
+        if self.dirty.is_none() {
+            return;
+        }
+        let mut m = self.dirty.as_ref().unwrap().lock().await;
         unsafe {
             (&mut *self.read.get()).shrink_to_fit()
         }
@@ -212,7 +224,10 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     }
 
     pub async fn shrink_to_fit_mut(&mut self) {
-        let m = self.dirty.get_mut();
+        if self.dirty.is_none() {
+            return;
+        }
+        let m = self.dirty.as_mut().unwrap().get_mut();
         unsafe {
             (&mut *self.read.get()).shrink_to_fit()
         }
@@ -221,7 +236,7 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
 
     pub fn from(map: Map<K, V>) -> Self where K: Clone + Eq + Hash {
         let mut s = Self::with_capacity(map.capacity());
-        let m = s.dirty.get_mut();
+        let m = s.dirty.as_mut().expect("dirty is removed").get_mut();
         *m = map;
         unsafe {
             for (k, v) in m.iter() {
@@ -272,7 +287,10 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
             K: Borrow<Q>,
             Q: Hash + Eq,
     {
-        let m = self.dirty.lock().await;
+        if self.dirty.is_none() {
+            return None;
+        }
+        let m = self.dirty.as_ref().unwrap().lock().await;
         let mut r = SyncMapRefMut {
             g: m,
             value: None,
@@ -290,7 +308,7 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
     }
 
     pub async fn iter_mut(&self) -> IterMut<'_, K, V> {
-        let m = self.dirty.lock().await;
+        let m = self.dirty.as_ref().expect("dirty is removed").lock().await;
         let mut iter = IterMut {
             g: m,
             inner: None,
@@ -301,10 +319,11 @@ impl<K, V> SyncMapImpl<K, V> where K: std::cmp::Eq + Hash + Clone {
         return iter;
     }
 
-    pub fn into_iter(self) -> MapIter<'static, K, V> {
+    pub fn into_iter(mut self) -> MapIntoIter<K, V> {
         unsafe {
-            (&*self.read.get()).iter()
+            (*self.read.get()).clear();
         }
+        self.dirty.take().expect("dirty is None!").into_inner().into_iter()
     }
 }
 
@@ -409,6 +428,15 @@ impl<'a, K, V> IntoIterator for &'a SyncMapImpl<K, V> where K: Eq + Hash + Clone
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+impl<K, V> IntoIterator for SyncMapImpl<K, V> where K: Eq + Hash + Clone {
+    type Item = (K, V);
+    type IntoIter = MapIntoIter<K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_iter()
     }
 }
 
