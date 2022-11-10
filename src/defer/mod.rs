@@ -44,11 +44,11 @@ macro_rules! defer {
 }
 
 #[cfg(test)]
-mod test{
+mod test {
     #[test]
-    fn test_defer(){
-        defer!(||{
-           println!("defer");
+    fn test_defer() {
+        defer!(|| {
+            println!("defer");
         });
     }
 }

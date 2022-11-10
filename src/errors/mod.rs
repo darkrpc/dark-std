@@ -14,9 +14,12 @@ impl Error {
         self.inner.clone()
     }
 
-    pub fn warp<E>(e: E, info: &str) -> Self where E: std::fmt::Display {
+    pub fn warp<E>(e: E, info: &str) -> Self
+    where
+        E: std::fmt::Display,
+    {
         Self {
-            inner: format!("{}{}", info, e)
+            inner: format!("{}{}", info, e),
         }
     }
 
@@ -24,7 +27,6 @@ impl Error {
         self.inner.clone()
     }
 }
-
 
 /// dark_std::errors::Error
 #[macro_export]
@@ -39,9 +41,7 @@ macro_rules! err {
 ///new error
 #[inline]
 pub fn new(text: String) -> Error {
-    Error {
-        inner: text
-    }
+    Error { inner: text }
 }
 
 pub trait FromError<T>: Sized {
@@ -59,7 +59,6 @@ impl Debug for Error {
         std::fmt::Debug::fmt(&self.inner, f)
     }
 }
-
 
 impl From<std::io::Error> for Error {
     #[inline]
@@ -118,24 +117,24 @@ impl From<time::error::Parse> for Error {
     }
 }
 
-impl From<std::sync::mpsc::RecvError> for Error{
+impl From<std::sync::mpsc::RecvError> for Error {
     fn from(e: RecvError) -> Self {
-       return new(e.to_string());
+        return new(e.to_string());
     }
 }
 
-impl <T>From<std::sync::mpsc::SendError<T>> for Error{
+impl<T> From<std::sync::mpsc::SendError<T>> for Error {
     fn from(e: std::sync::mpsc::SendError<T>) -> Self {
         return new(e.to_string());
     }
 }
 
 #[cfg(test)]
-mod test{
+mod test {
 
     #[test]
-    fn test_error(){
+    fn test_error() {
         let e = err!("e");
-        assert_eq!(e.to_string(),"e");
+        assert_eq!(e.to_string(), "e");
     }
 }

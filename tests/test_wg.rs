@@ -1,6 +1,6 @@
+use dark_std::sync::WaitGroup;
 use std::time::Duration;
 use tokio::time::sleep;
-use dark_std::sync::WaitGroup;
 
 #[tokio::test]
 async fn test_wg() {
