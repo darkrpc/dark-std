@@ -1,8 +1,5 @@
-
 use dark_std::sync::SyncHashMap;
-use std::collections::HashMap;
-use std::ops::Deref;
-use std::sync::atomic::Ordering;
+
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
@@ -93,9 +90,19 @@ pub async fn test_insert2() {
 #[tokio::test]
 pub async fn test_get() {
     let m = SyncHashMap::<i32, i32>::new();
-    let insert = m.insert(1, 2).await;
+    m.insert(1, 2).await;
     let g = m.get(&1).unwrap();
     assert_eq!(&2, g);
+}
+
+#[tokio::test]
+pub async fn test_get_mut() {
+    let m = SyncHashMap::<i32, i32>::new();
+    m.insert(1, 2).await;
+    let mut r = m.get_mut(&1).await.unwrap();
+    *r = 0;
+    let g = m.get(&1).unwrap();
+    assert_eq!(&0, g);
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -113,7 +120,7 @@ impl Drop for A {
 pub async fn test_remove() {
     let a = A { inner: 0 };
     let m = SyncHashMap::<i32, A>::new();
-    let insert = m.insert(1, a).await;
+    m.insert(1, a).await;
     let g = m.get(&1).unwrap();
     let rm = m.remove(&1).await.unwrap();
     println!("rm:{:?}", rm);
@@ -152,7 +159,7 @@ pub async fn test_remove2() {
 #[tokio::test]
 pub async fn test_iter() {
     let m = SyncHashMap::<i32, i32>::new();
-    let insert = m.insert(1, 2).await;
+    m.insert(1, 2).await;
     for (k, v) in m.iter() {
         assert_eq!(*k, 1);
         assert_eq!(*v, 2);
@@ -162,7 +169,7 @@ pub async fn test_iter() {
 #[tokio::test]
 pub async fn test_iter_mut() {
     let m = SyncHashMap::<i32, i32>::new();
-    let insert = m.insert(1, 2).await;
+    m.insert(1, 2).await;
     for (k, v) in m.iter_mut().await {
         assert_eq!(*k, 1);
         assert_eq!(*v, 2);

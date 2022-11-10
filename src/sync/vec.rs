@@ -2,9 +2,7 @@ use serde::ser::SerializeSeq;
 use serde::{Deserializer, Serialize, Serializer};
 use std::cell::UnsafeCell;
 use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index};
-use std::ptr::NonNull;
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use std::sync::Arc;
 use std::vec::IntoIter;
@@ -213,10 +211,9 @@ impl<V> SyncVecImpl<V> {
         Some(r)
     }
 
-
     pub fn iter(&self) -> SyncVecIter<'_, V> {
         SyncVecIter {
-            inner: unsafe { (&*self.read.get()).iter() }
+            inner: unsafe { (&*self.read.get()).iter() },
         }
     }
 
@@ -273,8 +270,8 @@ impl<'a, V> DerefMut for VecRefMut<'_, V> {
 }
 
 impl<'a, V> Debug for VecRefMut<'_, V>
-    where
-        V: Debug,
+where
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
@@ -349,12 +346,12 @@ impl<V> IntoIterator for SyncVecImpl<V> {
 }
 
 impl<V> serde::Serialize for SyncVecImpl<V>
-    where
-        V: Serialize,
+where
+    V: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         let mut m = serializer.serialize_seq(Some(self.len()))?;
         for v in self.iter() {
@@ -365,12 +362,12 @@ impl<V> serde::Serialize for SyncVecImpl<V>
 }
 
 impl<'de, V> serde::Deserialize<'de> for SyncVecImpl<V>
-    where
-        V: serde::Deserialize<'de>,
+where
+    V: serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let m = Vec::deserialize(deserializer)?;
         Ok(Self::from(m))
@@ -378,8 +375,8 @@ impl<'de, V> serde::Deserialize<'de> for SyncVecImpl<V>
 }
 
 impl<V> Debug for SyncVecImpl<V>
-    where
-        V: Debug,
+where
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut m = f.debug_list();
@@ -398,7 +395,6 @@ impl<V> Index<usize> for SyncVecImpl<V> {
     }
 }
 
-
 pub struct SyncVecIter<'a, V> {
     inner: SliceIter<'a, *const V>,
 }
@@ -408,10 +404,8 @@ impl<'a, V> Iterator for SyncVecIter<'a, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.inner.next() {
-            None => { None }
-            Some(v) => {
-                unsafe { v.as_ref() }
-            }
+            None => None,
+            Some(v) => unsafe { v.as_ref() },
         }
     }
 }

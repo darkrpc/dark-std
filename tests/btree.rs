@@ -1,9 +1,6 @@
-
-use std::collections::BTreeMap;
-use std::ops::Deref;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use dark_std::sync::SyncBtreeMap;
+use std::ops::Deref;
+use std::sync::Arc;
 
 #[tokio::test]
 pub async fn test_empty() {
@@ -56,15 +53,25 @@ pub async fn test_insert2() {
 #[tokio::test]
 pub async fn test_get() {
     let m = SyncBtreeMap::<i32, i32>::new();
-    let insert = m.insert(1, 2).await;
+    m.insert(1, 2).await;
     let g = m.get(&1).unwrap();
     assert_eq!(2, *g.deref());
 }
 
 #[tokio::test]
+pub async fn test_get_mut() {
+    let m = SyncBtreeMap::<i32, i32>::new();
+    m.insert(1, 2).await;
+    let mut r = m.get_mut(&1).await.unwrap();
+    *r = 0;
+    let g = m.get(&1).unwrap();
+    assert_eq!(&0, g);
+}
+
+#[tokio::test]
 pub async fn test_iter() {
     let m = SyncBtreeMap::<i32, i32>::new();
-    let insert = m.insert(1, 2).await;
+    m.insert(1, 2).await;
     for (k, v) in m.iter() {
         assert_eq!(*k, 1);
         assert_eq!(*v, 2);
@@ -74,7 +81,7 @@ pub async fn test_iter() {
 #[tokio::test]
 pub async fn test_iter_mut() {
     let m = SyncBtreeMap::<i32, i32>::new();
-    let insert = m.insert(1, 2).await;
+    m.insert(1, 2).await;
     for (k, v) in m.iter_mut().await {
         assert_eq!(*k, 1);
         assert_eq!(*v, 2);

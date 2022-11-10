@@ -89,7 +89,7 @@ pub async fn test_push2() {
 #[tokio::test]
 pub async fn test_get() {
     let m = SyncVec::<i32>::new();
-    let insert = m.push(2).await;
+    m.push(2).await;
     let g = m.get(0).unwrap();
     assert_eq!(&2, g);
 }
@@ -97,10 +97,10 @@ pub async fn test_get() {
 #[tokio::test]
 pub async fn test_get_mut() {
     let m = SyncVec::<i32>::new();
-    let insert = m.push(2).await;
+    m.push(2).await;
     let mut m0 = m.get_mut(0).await.unwrap();
     *m0 = 1;
-    println!("{}",*m0);
+    println!("{}", *m0);
     let g = m.get(0).unwrap();
     assert_eq!(&1, g);
 }
@@ -120,7 +120,7 @@ impl Drop for A {
 pub async fn test_remove() {
     let a = A { inner: 0 };
     let m = SyncVec::<A>::new();
-    let insert = m.push(a).await;
+    m.push(a).await;
     let g = m.get(0).unwrap();
     let rm = m.remove(0).await.unwrap();
     println!("rm:{:?}", rm);
@@ -134,22 +134,22 @@ pub async fn test_remove() {
 #[tokio::test]
 pub async fn test_remove2() {
     let m = SyncVec::<String>::new();
-    for i in 0..1000000 {
+    for _ in 0..1000000 {
         m.push(String::from("safdfasdfasdfasdfasdfasdfsadf")).await;
     }
     sleep(Duration::from_secs(2));
     println!("start clean");
-    m.clear();
-    m.shrink_to_fit();
+    m.clear().await;
+    m.shrink_to_fit().await;
     println!("done,now you can see mem usage");
     sleep(Duration::from_secs(5));
-    for i in 0..1000000 {
+    for _ in 0..1000000 {
         m.push(String::from("safdfasdfasdfasdfasdfasdfsadf")).await;
     }
     sleep(Duration::from_secs(2));
     println!("start clean");
-    m.clear();
-    m.shrink_to_fit();
+    m.clear().await;
+    m.shrink_to_fit().await;
     println!("done,now you can see mem usage");
     sleep(Duration::from_secs(5));
 }
@@ -157,7 +157,7 @@ pub async fn test_remove2() {
 #[tokio::test]
 pub async fn test_iter() {
     let m = SyncVec::<i32>::new();
-    let insert = m.push(2).await;
+    m.push(2).await;
     for v in m.iter() {
         assert_eq!(*v, 2);
     }
@@ -166,7 +166,7 @@ pub async fn test_iter() {
 #[tokio::test]
 pub async fn test_iter_mut() {
     let m = SyncVec::<i32>::new();
-    let insert = m.push(2).await;
+    m.push(2).await;
     for v in m.iter_mut().await {
         assert_eq!(*v, 2);
     }

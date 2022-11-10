@@ -32,7 +32,7 @@ pub type SyncBtreeMap<K, V> = SyncMapImpl<K, V>;
 ///
 /// The zero Map is empty and ready for use. A Map must not be copied after first use.
 pub struct SyncMapImpl<K: Eq + Hash + Clone + Ord, V> {
-    read: UnsafeCell<Map<K, V>>,
+    read: UnsafeCell<Map<K, *const V>>,
     dirty: Option<Mutex<HashMap<K, V>>>,
 }
 
@@ -91,7 +91,7 @@ where
             None => {
                 let r = m.get(&k);
                 unsafe {
-                    (&mut *self.read.get()).insert(k, std::mem::transmute_copy(r.unwrap()));
+                    (&mut *self.read.get()).insert(k, r.unwrap());
                 }
                 None
             }
@@ -109,7 +109,7 @@ where
             None => {
                 let r = m.get(&k);
                 unsafe {
-                    (&mut *self.read.get()).insert(k, std::mem::transmute_copy(r.unwrap()));
+                    (&mut *self.read.get()).insert(k, r.unwrap());
                 }
                 None
             }
@@ -224,7 +224,7 @@ where
         *m = map;
         unsafe {
             for (k, v) in m.iter() {
-                (&mut *s.read.get()).insert(k.clone(), std::mem::transmute_copy(v));
+                (&mut *s.read.get()).insert(k.clone(), v);
             }
         }
         s
@@ -258,7 +258,7 @@ where
             let k = (&*self.read.get()).get(k);
             match k {
                 None => None,
-                Some(s) => Some(s),
+                Some(s) => s.as_ref(),
             }
         }
     }
@@ -276,8 +276,10 @@ where
         Some(r)
     }
 
-    pub fn iter(&self) -> MapIter<'_, K, V> {
-        unsafe { (&*self.read.get()).iter() }
+    pub fn iter(&self) -> BtreeIter<'_, K, V> {
+        BtreeIter {
+            inner: unsafe { (&*self.read.get()).iter() },
+        }
     }
 
     pub async fn iter_mut(&self) -> IterMut<'_, K, V> {
@@ -403,7 +405,7 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
 
 impl<'a, K: Eq + Hash + Clone + Ord, V> IntoIterator for &'a SyncMapImpl<K, V> {
     type Item = (&'a K, &'a V);
-    type IntoIter = MapIter<'a, K, V>;
+    type IntoIter = BtreeIter<'a, K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -469,5 +471,20 @@ where
             m.value(v);
         }
         m.finish()
+    }
+}
+
+pub struct BtreeIter<'a, K, V> {
+    inner: MapIter<'a, K, *const V>,
+}
+
+impl<'a, K, V> Iterator for BtreeIter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.inner.next() {
+            None => None,
+            Some((k, v)) => Some((k, unsafe { v.as_ref().unwrap() })),
+        }
     }
 }
