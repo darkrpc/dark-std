@@ -167,10 +167,7 @@ where
         let mut m = self.dirty.as_ref().unwrap().lock().await;
         m.clear();
         unsafe {
-            let k = (&mut *self.read.get()).keys().clone();
-            for x in k {
-                (&mut *self.read.get()).remove(x);
-            }
+            (&mut *self.read.get()).clear();
         }
     }
 
@@ -178,10 +175,7 @@ where
         let m = self.dirty.as_mut().expect("dirty is removed").get_mut();
         m.clear();
         unsafe {
-            let k = (&mut *self.read.get()).keys().clone();
-            for x in k {
-                (&mut *self.read.get()).remove(x);
-            }
+            (&mut *self.read.get()).clear();
         }
     }
 

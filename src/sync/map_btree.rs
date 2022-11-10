@@ -160,24 +160,18 @@ where
         let mut m = self.dirty.as_ref().expect("dirty is removed").lock().await;
         m.clear();
         unsafe {
-            let k = (&mut *self.read.get()).keys().clone();
-            for x in k {
-                (&mut *self.read.get()).remove(x);
-            }
+           (&mut *self.read.get()).clear();
         }
     }
 
     pub fn clear_mut(&mut self)
     where
-        K: std::cmp::Eq + Hash + Clone + std::cmp::Ord,
+        K: Eq + Hash + Clone + Ord,
     {
         let m = self.dirty.as_mut().expect("dirty is removed").get_mut();
         m.clear();
         unsafe {
-            let k = (&mut *self.read.get()).keys().clone();
-            for x in k {
-                (&mut *self.read.get()).remove(x);
-            }
+           (&mut *self.read.get()).clear();
         }
     }
 
