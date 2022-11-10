@@ -44,13 +44,7 @@ impl<K: Eq + Hash + Clone + Ord, V> Drop for SyncMapImpl<K, V> {
                 keys.insert(0, k);
             }
             for x in keys {
-                let v = (&mut *self.read.get()).remove(x);
-                match v {
-                    None => {}
-                    Some(v) => {
-                        std::mem::forget(v);
-                    }
-                }
+                (&mut *self.read.get()).remove(x);
             }
         }
     }
@@ -126,13 +120,7 @@ where
         match op {
             Some(v) => {
                 unsafe {
-                    let r = (&mut *self.read.get()).remove(k);
-                    match r {
-                        None => {}
-                        Some(r) => {
-                            std::mem::forget(r);
-                        }
-                    }
+                    (&mut *self.read.get()).remove(k);
                 }
                 Some(v)
             }
@@ -149,13 +137,7 @@ where
         match op {
             Some(v) => {
                 unsafe {
-                    let r = (&mut *self.read.get()).remove(k);
-                    match r {
-                        None => {}
-                        Some(r) => {
-                            std::mem::forget(r);
-                        }
-                    }
+                    (&mut *self.read.get()).remove(k);
                 }
                 Some(v)
             }
@@ -180,13 +162,7 @@ where
         unsafe {
             let k = (&mut *self.read.get()).keys().clone();
             for x in k {
-                let v = (&mut *self.read.get()).remove(x);
-                match v {
-                    None => {}
-                    Some(v) => {
-                        std::mem::forget(v);
-                    }
-                }
+                (&mut *self.read.get()).remove(x);
             }
         }
     }
@@ -200,13 +176,7 @@ where
         unsafe {
             let k = (&mut *self.read.get()).keys().clone();
             for x in k {
-                let v = (&mut *self.read.get()).remove(x);
-                match v {
-                    None => {}
-                    Some(v) => {
-                        std::mem::forget(v);
-                    }
-                }
+                (&mut *self.read.get()).remove(x);
             }
         }
     }

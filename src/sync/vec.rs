@@ -19,14 +19,7 @@ pub struct SyncVecImpl<V> {
 impl<V> Drop for SyncVecImpl<V> {
     fn drop(&mut self) {
         unsafe {
-            loop {
-                match (&mut *self.read.get()).pop() {
-                    None => {
-                        break;
-                    }
-                    Some(v) => std::mem::forget(v),
-                }
-            }
+            (&mut *self.read.get()).clear();
         }
     }
 }
@@ -97,13 +90,7 @@ impl<V> SyncVecImpl<V> {
             }
             Some(s) => {
                 unsafe {
-                    let r = (&mut *self.read.get()).pop();
-                    match r {
-                        None => {}
-                        Some(r) => {
-                            std::mem::forget(r);
-                        }
-                    }
+                    (&mut *self.read.get()).pop();
                 }
                 return Some(s);
             }
@@ -118,13 +105,7 @@ impl<V> SyncVecImpl<V> {
             }
             Some(s) => {
                 unsafe {
-                    let r = (&mut *self.read.get()).pop();
-                    match r {
-                        None => {}
-                        Some(r) => {
-                            std::mem::forget(r);
-                        }
-                    }
+                    (&mut *self.read.get()).pop();
                 }
                 return Some(s);
             }
@@ -138,8 +119,7 @@ impl<V> SyncVecImpl<V> {
                 let mut m = self.dirty.as_ref().expect("dirty is removed").lock().await;
                 let v = m.remove(index);
                 unsafe {
-                    let r = (&mut *self.read.get()).remove(index);
-                    std::mem::forget(r);
+                    (&mut *self.read.get()).remove(index);
                 }
                 Some(v)
             }
@@ -158,14 +138,7 @@ impl<V> SyncVecImpl<V> {
         let mut m = self.dirty.as_ref().expect("dirty is removed").lock().await;
         m.clear();
         unsafe {
-            loop {
-                match (&mut *self.read.get()).pop() {
-                    None => {
-                        break;
-                    }
-                    Some(v) => std::mem::forget(v),
-                }
-            }
+            (&mut *self.read.get()).clear();
         }
     }
 
