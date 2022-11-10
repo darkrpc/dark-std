@@ -1,9 +1,9 @@
 
-use crate::sync::SyncBtreeMap;
 use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use dark_std::sync::SyncBtreeMap;
 
 #[tokio::test]
 pub async fn test_empty() {

@@ -1,7 +1,4 @@
-
 use dark_std::sync::SyncVec;
-use std::ops::Deref;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
@@ -101,8 +98,11 @@ pub async fn test_get() {
 pub async fn test_get_mut() {
     let m = SyncVec::<i32>::new();
     let insert = m.push(2).await;
+    let mut m0 = m.get_mut(0).await.unwrap();
+    *m0 = 1;
+    println!("{}",*m0);
     let g = m.get(0).unwrap();
-    assert_eq!(&2, g);
+    assert_eq!(&1, g);
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
