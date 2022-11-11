@@ -2,32 +2,32 @@ use dark_std::sync::SyncBtreeMap;
 use std::ops::Deref;
 use std::sync::Arc;
 
-#[tokio::test]
-pub async fn test_empty() {
+#[test]
+pub fn test_empty() {
     let m: SyncBtreeMap<i32, i32> = SyncBtreeMap::new();
     assert_eq!(0, m.len());
 }
 
-#[tokio::test]
-pub async fn test_insert() {
+#[test]
+pub fn test_insert() {
     let m = SyncBtreeMap::<i32, i32>::new();
-    let insert = m.insert(1, 2).await;
+    let insert = m.insert(1, 2);
     assert_eq!(insert.is_none(), true);
 }
 
-#[tokio::test]
-pub async fn test_insert2() {
+#[test]
+pub fn test_insert2() {
     let m = Arc::new(SyncBtreeMap::<String, String>::new());
-    m.insert("/".to_string(), "1".to_string()).await;
-    m.insert("/js".to_string(), "2".to_string()).await;
-    m.insert("/fn".to_string(), "3".to_string()).await;
+    m.insert("/".to_string(), "1".to_string());
+    m.insert("/js".to_string(), "2".to_string());
+    m.insert("/fn".to_string(), "3".to_string());
 
     assert_eq!(&"1".to_string(), m.get("/").unwrap());
     assert_eq!(&"2".to_string(), m.get("/js").unwrap());
     assert_eq!(&"3".to_string(), m.get("/fn").unwrap());
 }
 
-// #[tokio::test]
+// #[test]
 // pub fn test_insert3() {
 //     let m = Arc::new(SyncBtreeMap::<i32, i32>::new());
 //     let wg = WaitGroup::new();
@@ -50,39 +50,39 @@ pub async fn test_insert2() {
 //     wg.wait();
 // }
 
-#[tokio::test]
-pub async fn test_get() {
+#[test]
+pub fn test_get() {
     let m = SyncBtreeMap::<i32, i32>::new();
-    m.insert(1, 2).await;
+    m.insert(1, 2);
     let g = m.get(&1).unwrap();
     assert_eq!(2, *g.deref());
 }
 
-#[tokio::test]
-pub async fn test_get_mut() {
+#[test]
+pub fn test_get_mut() {
     let m = SyncBtreeMap::<i32, i32>::new();
-    m.insert(1, 2).await;
-    let mut r = m.get_mut(&1).await.unwrap();
+    m.insert(1, 2);
+    let mut r = m.get_mut(&1).unwrap();
     *r = 0;
     let g = m.get(&1).unwrap();
     assert_eq!(&0, g);
 }
 
-#[tokio::test]
-pub async fn test_iter() {
+#[test]
+pub fn test_iter() {
     let m = SyncBtreeMap::<i32, i32>::new();
-    m.insert(1, 2).await;
+    m.insert(1, 2);
     for (k, v) in m.iter() {
         assert_eq!(*k, 1);
         assert_eq!(*v, 2);
     }
 }
 
-#[tokio::test]
-pub async fn test_iter_mut() {
+#[test]
+pub fn test_iter_mut() {
     let m = SyncBtreeMap::<i32, i32>::new();
-    m.insert(1, 2).await;
-    for (k, v) in m.iter_mut().await {
+    m.insert(1, 2);
+    for (k, v) in m.iter_mut() {
         assert_eq!(*k, 1);
         assert_eq!(*v, 2);
     }

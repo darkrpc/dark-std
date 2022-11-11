@@ -7,8 +7,7 @@ use std::ops::{Deref, DerefMut, Index};
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use std::sync::Arc;
 use std::vec::IntoIter;
-
-use tokio::sync::{Mutex, MutexGuard};
+use parking_lot::{Mutex, MutexGuard};
 
 pub type SyncVec<V> = SyncVecImpl<V>;
 
@@ -49,16 +48,16 @@ impl<V> SyncVecImpl<V> {
         }
     }
 
-    pub async fn insert(&self, index: usize, v: V) -> Option<V> {
-        let g=self.lock.lock().await;
+    pub fn insert(&self, index: usize, v: V) -> Option<V> {
+        let g=self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         m.insert(index, v);
         drop(g);
         None
     }
 
-    pub async fn push(&self, v: V) -> Option<V> {
-        let g=self.lock.lock().await;
+    pub fn push(&self, v: V) -> Option<V> {
+        let g=self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         m.push(v);
         drop(g);
@@ -71,8 +70,8 @@ impl<V> SyncVecImpl<V> {
         None
     }
 
-    pub async fn pop(&self) -> Option<V> {
-        let g=self.lock.lock().await;
+    pub fn pop(&self) -> Option<V> {
+        let g=self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         match m.pop() {
             None => {
@@ -97,8 +96,8 @@ impl<V> SyncVecImpl<V> {
         }
     }
 
-    pub async fn remove(&self, index: usize) -> Option<V> {
-        let g=self.lock.lock().await;
+    pub fn remove(&self, index: usize) -> Option<V> {
+        let g=self.lock.lock();
         match self.get(index) {
             None => None,
             Some(_) => {
@@ -118,15 +117,15 @@ impl<V> SyncVecImpl<V> {
         unsafe { (&*self.dirty.get()).is_empty() }
     }
 
-    pub async fn clear(&self) {
-        let g=self.lock.lock().await;
+    pub fn clear(&self) {
+        let g=self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         m.clear();
         drop(g);
     }
 
-    pub async fn shrink_to_fit(&self) {
-        let g=self.lock.lock().await;
+    pub fn shrink_to_fit(&self) {
+        let g=self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         m.shrink_to_fit();
         drop(g);
@@ -143,13 +142,13 @@ impl<V> SyncVecImpl<V> {
         }
     }
 
-    pub unsafe fn get_uncheck(&self, index: usize) -> &V {
-        (&*self.dirty.get()).get_unchecked(index)
+    pub fn get_uncheck(&self, index: usize) -> &V {
+        unsafe{(&*self.dirty.get()).get_unchecked(index)}
     }
 
-    pub async fn get_mut(&self, index: usize) -> Option<VecRefMut<'_, V>> {
+    pub fn get_mut(&self, index: usize) -> Option<VecRefMut<'_, V>> {
         let m = unsafe { &mut *self.dirty.get() };
-        let mut r = VecRefMut { _g: self.lock.lock().await, value: None };
+        let mut r = VecRefMut { _g: self.lock.lock(), value: None };
         r.value = Some(m.get_mut(index)?);
         Some(r)
     }
@@ -158,9 +157,9 @@ impl<V> SyncVecImpl<V> {
         unsafe { (&*self.dirty.get()).iter() }
     }
 
-    pub async fn iter_mut(&self) -> IterMut<'_, V> {
+    pub fn iter_mut(&self) -> IterMut<'_, V> {
         let m = unsafe { &mut *self.dirty.get() };
-        let mut iter = IterMut { _g: self.lock.lock().await, inner: None };
+        let mut iter = IterMut { _g: self.lock.lock(), inner: None };
         iter.inner = Some(m.iter_mut());
         return iter;
     }

@@ -8,7 +8,7 @@ use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
-use tokio::sync::{Mutex, MutexGuard};
+use parking_lot::{Mutex, MutexGuard};
 
 pub type SyncBtreeMap<K, V> = SyncMapImpl<K, V>;
 
@@ -50,11 +50,11 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
         }
     }
 
-    pub async fn insert(&self, k: K, v: V) -> Option<V>
+    pub fn insert(&self, k: K, v: V) -> Option<V>
         where
             K: Clone + std::cmp::Ord,
     {
-        let g = self.lock.lock().await;
+        let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         let r = m.insert(k.clone(), v);
         drop(g);
@@ -69,11 +69,11 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
         m.insert(k.clone(), v)
     }
 
-    pub async fn remove(&self, k: &K) -> Option<V>
+    pub fn remove(&self, k: &K) -> Option<V>
         where
             K: Clone + std::cmp::Ord,
     {
-        let g = self.lock.lock().await;
+        let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         let r = m.remove(k);
         drop(g);
@@ -96,11 +96,11 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
         unsafe { (&*self.dirty.get()).is_empty() }
     }
 
-    pub async fn clear(&self)
+    pub fn clear(&self)
         where
             K: Eq + Hash + Clone + Ord,
     {
-        let g = self.lock.lock().await;
+        let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         m.clear();
         drop(g);
@@ -155,13 +155,13 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
         }
     }
 
-    pub async fn get_mut<Q: ?Sized>(&self, k: &Q) -> Option<SyncMapRefMut<'_, V>>
+    pub fn get_mut<Q: ?Sized>(&self, k: &Q) -> Option<SyncMapRefMut<'_, V>>
         where
             K: Borrow<Q> + std::cmp::Ord,
             Q: Hash + Eq + std::cmp::Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
-        let mut r = SyncMapRefMut { _g: self.lock.lock().await, value: None };
+        let mut r = SyncMapRefMut { _g: self.lock.lock(), value: None };
         r.value = Some(m.get_mut(k)?);
         Some(r)
     }
@@ -170,9 +170,9 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
         unsafe { (&*self.dirty.get()).iter() }
     }
 
-    pub async fn iter_mut(&self) -> IterMut<'_, K, V> {
+    pub fn iter_mut(&self) -> IterMut<'_, K, V> {
         let m = unsafe { &mut *self.dirty.get() };
-        let mut iter = IterMut { _g: self.lock.lock().await, inner: None };
+        let mut iter = IterMut { _g: self.lock.lock(), inner: None };
         iter.inner = Some(m.iter_mut());
         return iter;
     }

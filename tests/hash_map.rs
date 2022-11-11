@@ -4,40 +4,40 @@ use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 
-#[tokio::test]
-pub async fn test_debug() {
+#[test]
+pub fn test_debug() {
     let m: SyncHashMap<i32, i32> = SyncHashMap::new();
-    m.insert(1, 1).await;
+    m.insert(1, 1);
     println!("{:?}", m);
     assert_eq!(format!("{:?}", m), "{1: 1}");
 }
 
-#[tokio::test]
-pub async fn test_empty() {
+#[test]
+pub fn test_empty() {
     let m: SyncHashMap<i32, i32> = SyncHashMap::new();
     assert_eq!(0, m.len());
 }
 
-#[tokio::test]
-pub async fn test_insert() {
+#[test]
+pub fn test_insert() {
     let m = SyncHashMap::<i32, i32>::new();
-    let insert = m.insert(1, 2).await;
+    let insert = m.insert(1, 2);
     assert_eq!(insert.is_none(), true);
 }
 
-#[tokio::test]
-pub async fn test_insert2() {
+#[test]
+pub fn test_insert2() {
     let m = Arc::new(SyncHashMap::<String, String>::new());
-    m.insert("/".to_string(), "1".to_string()).await;
-    m.insert("/js".to_string(), "2".to_string()).await;
-    m.insert("/fn".to_string(), "3".to_string()).await;
+    m.insert("/".to_string(), "1".to_string());
+    m.insert("/js".to_string(), "2".to_string());
+    m.insert("/fn".to_string(), "3".to_string());
 
     assert_eq!(&"1".to_string(), m.get("/").unwrap());
     assert_eq!(&"2".to_string(), m.get("/js").unwrap());
     assert_eq!(&"3".to_string(), m.get("/fn").unwrap());
 }
 
-// #[tokio::test]
+// #[test]
 // pub fn test_insert3() {
 //     let m = Arc::new(SyncHashMap::<i32, i32>::new());
 //     let wg = WaitGroup::new();
@@ -60,7 +60,7 @@ pub async fn test_insert2() {
 //     wg.wait();
 // }
 
-// #[tokio::test]
+// #[test]
 // pub fn test_insert4() {
 //     let m = Arc::new(SyncHashMap::<i32, i32>::new());
 //     let wg = WaitGroup::new();
@@ -87,19 +87,19 @@ pub async fn test_insert2() {
 //     wg.wait();
 // }
 
-#[tokio::test]
-pub async fn test_get() {
+#[test]
+pub fn test_get() {
     let m = SyncHashMap::<i32, i32>::new();
-    m.insert(1, 2).await;
+    m.insert(1, 2);
     let g = m.get(&1).unwrap();
     assert_eq!(&2, g);
 }
 
-#[tokio::test]
-pub async fn test_get_mut() {
+#[test]
+pub fn test_get_mut() {
     let m = SyncHashMap::<i32, i32>::new();
-    m.insert(1, 2).await;
-    let mut r = m.get_mut(&1).await.unwrap();
+    m.insert(1, 2);
+    let mut r = m.get_mut(&1).unwrap();
     *r = 0;
     let g = m.get(&1).unwrap();
     assert_eq!(&0, g);
@@ -116,13 +116,13 @@ impl Drop for A {
     }
 }
 
-#[tokio::test]
-pub async fn test_remove() {
+#[test]
+pub fn test_remove() {
     let a = A { inner: 0 };
     let m = SyncHashMap::<i32, A>::new();
-    m.insert(1, a).await;
+    m.insert(1, a);
     let g = m.get(&1).unwrap();
-    let rm = m.remove(&1).await.unwrap();
+    let rm = m.remove(&1).unwrap();
     println!("rm:{:?}", rm);
     drop(rm);
     assert_eq!(true, m.is_empty());
@@ -131,52 +131,52 @@ pub async fn test_remove() {
     assert_eq!(&A { inner: 0 }, g);
 }
 
-#[tokio::test]
-pub async fn test_remove2() {
+#[test]
+pub fn test_remove2() {
     let m = SyncHashMap::<i32, String>::new();
     for i in 0..1000000 {
         m.insert(i, String::from("safdfasdfasdfasdfasdfasdfsadf"))
-            .await;
+            ;
     }
     sleep(Duration::from_secs(2));
     println!("start clean");
-    m.clear().await;
-    m.shrink_to_fit().await;
+    m.clear();
+    m.shrink_to_fit();
     println!("done,now you can see mem usage");
     sleep(Duration::from_secs(5));
     for i in 0..1000000 {
         m.insert(i, String::from("safdfasdfasdfasdfasdfasdfsadf"))
-            .await;
+            ;
     }
     sleep(Duration::from_secs(2));
     println!("start clean");
-    m.clear().await;
-    m.shrink_to_fit().await;
+    m.clear();
+    m.shrink_to_fit();
     println!("done,now you can see mem usage");
     sleep(Duration::from_secs(5));
 }
 
-#[tokio::test]
-pub async fn test_iter() {
+#[test]
+pub fn test_iter() {
     let m = SyncHashMap::<i32, i32>::new();
-    m.insert(1, 2).await;
+    m.insert(1, 2);
     for (k, v) in m.iter() {
         assert_eq!(*k, 1);
         assert_eq!(*v, 2);
     }
 }
 
-#[tokio::test]
-pub async fn test_iter_mut() {
+#[test]
+pub fn test_iter_mut() {
     let m = SyncHashMap::<i32, i32>::new();
-    m.insert(1, 2).await;
-    for (k, v) in m.iter_mut().await {
+    m.insert(1, 2);
+    for (k, v) in m.iter_mut() {
         assert_eq!(*k, 1);
         assert_eq!(*v, 2);
     }
 }
 
-// #[tokio::test]
+// #[test]
 // pub fn test_smoke2() {
 //     let wait1 = WaitGroup::new();
 //     let m1 = Arc::new(SyncHashMap::<i32, i32>::new());
@@ -202,7 +202,7 @@ pub async fn test_iter_mut() {
 //     wait1.wait();
 // }
 
-// #[tokio::test]
+// #[test]
 // pub fn test_smoke3() {
 //     let wait1 = WaitGroup::new();
 //     let m1 = Arc::new(SyncHashMap::<i32, i32>::new());
