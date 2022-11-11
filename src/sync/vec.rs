@@ -53,6 +53,12 @@ impl<V> SyncVec<V> {
         None
     }
 
+    pub fn insert_mut(&mut self, index: usize, v: V) -> Option<V> {
+        let m = unsafe { &mut *self.dirty.get() };
+        m.insert(index, v);
+        None
+    }
+
     pub fn push(&self, v: V) -> Option<V> {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
@@ -94,15 +100,22 @@ impl<V> SyncVec<V> {
     }
 
     pub fn remove(&self, index: usize) -> Option<V> {
-        let g = self.lock.lock();
-        match self.get(index) {
-            None => None,
-            Some(_) => {
-                drop(g);
-                let m = unsafe { &mut *self.dirty.get() };
-                let v = m.remove(index);
-                Some(v)
-            }
+        let m = unsafe { &mut *self.dirty.get() };
+        if m.len() > index {
+            let v = m.remove(index);
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn remove_mut(&mut self, index: usize) -> Option<V> {
+        let m = unsafe { &mut *self.dirty.get() };
+        if m.len() > index {
+            let v = m.remove(index);
+            Some(v)
+        } else {
+            None
         }
     }
 
