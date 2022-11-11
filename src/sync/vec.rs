@@ -42,6 +42,13 @@ impl<V> SyncVecImpl<V> {
         }
     }
 
+    pub fn with_vec(vec: Vec<V>) -> Self {
+        Self {
+            dirty: UnsafeCell::new(vec),
+            lock: Default::default(),
+        }
+    }
+
     pub async fn insert(&self, index: usize, v: V) -> Option<V> {
         let g=self.lock.lock().await;
         let m = unsafe { &mut *self.dirty.get() };
@@ -125,8 +132,8 @@ impl<V> SyncVecImpl<V> {
         drop(g);
     }
 
-    pub fn from(map: Vec<V>) -> Self {
-        let s = Self::with_capacity(map.capacity());
+    pub fn from(vec: Vec<V>) -> Self {
+        let s = Self::with_vec(vec);
         s
     }
 
