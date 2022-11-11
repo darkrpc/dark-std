@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+/// WaitGroup impl use channel,it's also both support sync and async
 pub struct WaitGroup {
     pub total: Arc<AtomicU64>,
     pub recv: Arc<flume::Receiver<u64>>,
