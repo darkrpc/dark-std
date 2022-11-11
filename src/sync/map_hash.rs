@@ -167,12 +167,10 @@ where
         Q: Hash + Eq,
     {
         let m = unsafe { &mut *self.dirty.get() };
-        let mut r = SyncMapRefMut {
+        Some(SyncMapRefMut {
             _g: self.lock.lock(),
-            value: None,
-        };
-        r.value = Some(m.get_mut(k)?);
-        Some(r)
+            value: m.get_mut(k)?,
+        })
     }
 
     #[inline]
@@ -210,20 +208,20 @@ where
 
 pub struct SyncMapRefMut<'a, V> {
     _g: MutexGuard<'a, ()>,
-    value: Option<&'a mut V>,
+    value: &'a mut V,
 }
 
 impl<'a, V> Deref for SyncMapRefMut<'_, V> {
     type Target = V;
 
     fn deref(&self) -> &Self::Target {
-        self.value.as_ref().unwrap()
+        self.value
     }
 }
 
 impl<'a, V> DerefMut for SyncMapRefMut<'_, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.value.as_mut().unwrap()
+        self.value
     }
 }
 
