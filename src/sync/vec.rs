@@ -75,27 +75,14 @@ impl<V> SyncVec<V> {
     pub fn pop(&self) -> Option<V> {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
-        match m.pop() {
-            None => {
-                return None;
-            }
-            Some(s) => {
-                drop(g);
-                return Some(s);
-            }
-        }
+        let r = m.pop();
+        drop(g);
+        r
     }
 
     pub fn pop_mut(&mut self) -> Option<V> {
         let m = unsafe { &mut *self.dirty.get() };
-        match m.pop() {
-            None => {
-                return None;
-            }
-            Some(s) => {
-                return Some(s);
-            }
-        }
+        m.pop()
     }
 
     pub fn remove(&self, index: usize) -> Option<V> {
@@ -165,6 +152,15 @@ impl<V> SyncVec<V> {
         Some(r)
     }
 
+    #[inline]
+    #[must_use]
+    pub fn contains(&self, x: &V) -> bool
+        where
+            V: PartialEq{
+        let m = unsafe { &mut *self.dirty.get() };
+        m.contains(x)
+    }
+
     pub fn iter(&self) -> std::slice::Iter<'_, V> {
         unsafe { (&*self.dirty.get()).iter() }
     }
@@ -213,8 +209,8 @@ impl<'a, V> DerefMut for VecRefMut<'_, V> {
 }
 
 impl<'a, V> Debug for VecRefMut<'_, V>
-where
-    V: Debug,
+    where
+        V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
@@ -289,24 +285,24 @@ impl<V> IntoIterator for SyncVec<V> {
 }
 
 impl<V> Serialize for SyncVec<V>
-where
-    V: Serialize,
+    where
+        V: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
+        where
+            S: Serializer,
     {
         self.dirty_ref().serialize(serializer)
     }
 }
 
 impl<'de, V> serde::Deserialize<'de> for SyncVec<V>
-where
-    V: serde::Deserialize<'de>,
+    where
+        V: serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         let m = Vec::deserialize(deserializer)?;
         Ok(Self::from(m))
@@ -314,8 +310,8 @@ where
 }
 
 impl<V> Debug for SyncVec<V>
-where
-    V: Debug,
+    where
+        V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut m = f.debug_list();

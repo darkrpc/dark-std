@@ -164,6 +164,15 @@ where
         Some(r)
     }
 
+    #[inline]
+    #[must_use]
+    pub fn contains_key(&self, x: &K) -> bool
+        where
+            K: PartialEq{
+        let m = unsafe { &mut *self.dirty.get() };
+        m.contains_key(x)
+    }
+
     pub fn iter(&self) -> MapIter<'_, K, V> {
         unsafe { (&*self.dirty.get()).iter() }
     }
