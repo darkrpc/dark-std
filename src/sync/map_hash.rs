@@ -330,7 +330,7 @@ impl<'de, K, V> serde::Deserialize<'de> for SyncMapImpl<K, V>
 
 impl<K, V> Debug for SyncMapImpl<K, V>
     where
-        K: std::cmp::Eq + Hash + Clone + Debug,
+        K: Eq + Hash + Clone + Debug,
         V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

@@ -52,7 +52,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
 
     pub fn insert(&self, k: K, v: V) -> Option<V>
         where
-            K: Clone + std::cmp::Ord,
+            K: Clone + Ord,
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
@@ -63,7 +63,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
 
     pub fn insert_mut(&mut self, k: K, v: V) -> Option<V>
         where
-            K: Clone + std::cmp::Ord,
+            K: Clone + Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.insert(k.clone(), v)
@@ -71,7 +71,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
 
     pub fn remove(&self, k: &K) -> Option<V>
         where
-            K: Clone + std::cmp::Ord,
+            K: Clone + Ord,
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
@@ -82,7 +82,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
 
     pub fn remove_mut(&mut self, k: &K) -> Option<V>
         where
-            K: Clone + std::cmp::Ord,
+            K: Clone + Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.remove(k)
@@ -120,7 +120,7 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
 
     pub fn from(map: BTreeMap<K, V>) -> Self
         where
-            K: Clone + Eq + Hash + std::cmp::Ord,
+            K: Clone + Eq + Hash + Ord,
     {
         let s = Self::with_map(map);
         s
@@ -147,8 +147,8 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
     /// ```
     pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
         where
-            K: Borrow<Q> + std::cmp::Ord,
-            Q: Hash + Eq + std::cmp::Ord,
+            K: Borrow<Q> + Ord,
+            Q: Hash + Eq + Ord,
     {
         unsafe {
             (&*self.dirty.get()).get(k)
@@ -157,8 +157,8 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
 
     pub fn get_mut<Q: ?Sized>(&self, k: &Q) -> Option<SyncMapRefMut<'_, V>>
         where
-            K: Borrow<Q> + std::cmp::Ord,
-            Q: Hash + Eq + std::cmp::Ord,
+            K: Borrow<Q> + Ord,
+            Q: Hash + Eq + Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
         let mut r = SyncMapRefMut { _g: self.lock.lock(), value: None };
@@ -297,7 +297,7 @@ impl<K: Eq + Hash + Clone + Ord, V> serde::Serialize for SyncMapImpl<K, V>
 
 impl<'de, K, V> serde::Deserialize<'de> for SyncMapImpl<K, V>
     where
-        K: Eq + Hash + Clone + serde::Deserialize<'de> + std::cmp::Ord,
+        K: Eq + Hash + Clone + serde::Deserialize<'de> + Ord,
         V: serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -311,7 +311,7 @@ impl<'de, K, V> serde::Deserialize<'de> for SyncMapImpl<K, V>
 
 impl<K: Eq + Hash + Clone + Ord, V> Debug for SyncMapImpl<K, V>
     where
-        K: std::cmp::Eq + Hash + Clone + Debug,
+        K: Eq + Hash + Clone + Debug,
         V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
