@@ -151,6 +151,7 @@ where
     /// assert_eq!(*map.get(&1).unwrap(), "a");
     /// assert_eq!(map.get(&2).is_none(), true);
     /// ```
+    #[inline]
     pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
     where
         K: Borrow<Q>,
@@ -159,6 +160,7 @@ where
         unsafe { (&*self.dirty.get()).get(k) }
     }
 
+    #[inline]
     pub fn get_mut<Q: ?Sized>(&self, k: &Q) -> Option<SyncMapRefMut<'_, V>>
     where
         K: Borrow<Q>,
@@ -174,7 +176,6 @@ where
     }
 
     #[inline]
-    #[must_use]
     pub fn contains_key(&self, x: &K) -> bool
         where
             K: PartialEq{

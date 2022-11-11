@@ -132,16 +132,19 @@ impl<V> SyncVec<V> {
         s
     }
 
+    #[inline]
     pub fn get(&self, index: usize) -> Option<&V> {
         unsafe {
             return (&*self.dirty.get()).get(index);
         }
     }
 
+    #[inline]
     pub fn get_uncheck(&self, index: usize) -> &V {
         unsafe { (&*self.dirty.get()).get_unchecked(index) }
     }
 
+    #[inline]
     pub fn get_mut(&self, index: usize) -> Option<VecRefMut<'_, V>> {
         let m = unsafe { &mut *self.dirty.get() };
         let mut r = VecRefMut {
@@ -153,7 +156,6 @@ impl<V> SyncVec<V> {
     }
 
     #[inline]
-    #[must_use]
     pub fn contains(&self, x: &V) -> bool
         where
             V: PartialEq{
