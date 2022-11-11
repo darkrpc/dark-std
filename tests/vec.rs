@@ -126,7 +126,7 @@ pub async fn test_remove() {
     println!("rm:{:?}", rm);
     drop(rm);
     assert_eq!(true, m.is_empty());
-    // assert_eq!(true, m.dirty.as_ref().unwrap().lock().await.is_empty());
+    assert_eq!(true, m.dirty_ref().is_empty());
     assert_eq!(None, m.get(0));
     assert_eq!(&A { inner: 0 }, g);
 }

@@ -2,10 +2,7 @@ use serde::ser::SerializeMap;
 use serde::{Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
-use std::collections::{
-    hash_map::IntoIter as MapIntoIter, hash_map::Iter as MapIter, hash_map::IterMut as MapIterMut,
-    HashMap as Map,
-};
+use std::collections::{hash_map::IntoIter as MapIntoIter, hash_map::Iter as MapIter, hash_map::IterMut as MapIterMut, HashMap as Map, HashMap};
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 
@@ -171,9 +168,7 @@ impl<K, V> SyncMapImpl<K, V>
     {
         let m = unsafe { &mut *self.dirty.get() };
         let mut r = SyncMapRefMut { _g: self.lock.lock().await, value: None };
-        unsafe {
-            r.value = Some(change_lifetime_mut(m.get_mut(k)?));
-        }
+        r.value = Some(m.get_mut(k)?);
         Some(r)
     }
 
@@ -190,6 +185,10 @@ impl<K, V> SyncMapImpl<K, V>
 
     pub fn into_iter(self) -> MapIntoIter<K, V> {
         self.dirty.into_inner().into_iter()
+    }
+
+    pub fn dirty_ref(&self) -> &HashMap<K, V> {
+        unsafe { &*self.dirty.get() }
     }
 }
 
@@ -239,28 +238,6 @@ impl<'a, V> PartialEq<Self> for SyncMapRefMut<'_, V>
 }
 
 impl<'a, V> Eq for SyncMapRefMut<'_, V> where V: Eq {}
-
-pub struct Iter<'a, K, V> {
-    inner: Option<MapIter<'a, K, *const V>>,
-}
-
-impl<'a, K, V> Iterator for Iter<'a, K, V> {
-    type Item = (&'a K, &'a V);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let next = self.inner.as_mut().unwrap().next();
-        match next {
-            None => None,
-            Some((k, v)) => {
-                if v.is_null() {
-                    None
-                } else {
-                    unsafe { Some((k, &**v)) }
-                }
-            }
-        }
-    }
-}
 
 pub struct IterMut<'a, K, V> {
     _g: MutexGuard<'a, ()>,

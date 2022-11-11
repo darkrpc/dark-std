@@ -170,8 +170,8 @@ impl<V> SyncVecImpl<V> {
         m.into_iter()
     }
 
-    pub async fn dirty_ref(&self) -> &mut Vec<V> {
-        unsafe { &mut *self.dirty.get() }
+    pub fn dirty_ref(&self) -> &Vec<V> {
+        unsafe { &*self.dirty.get() }
     }
 }
 
