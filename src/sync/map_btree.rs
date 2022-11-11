@@ -320,12 +320,7 @@ where
     V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut m = f.debug_map();
-        for (k, v) in self.iter() {
-            m.key(k);
-            m.value(v);
-        }
-        m.finish()
+        self.dirty_ref().fmt(f)
     }
 }
 

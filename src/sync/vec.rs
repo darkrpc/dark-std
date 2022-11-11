@@ -317,11 +317,7 @@ where
     V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut m = f.debug_list();
-        for v in self.iter() {
-            m.entry(v);
-        }
-        m.finish()
+        self.dirty_ref().fmt(f)
     }
 }
 
