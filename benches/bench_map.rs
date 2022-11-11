@@ -1,9 +1,9 @@
 #![feature(test)]
 extern crate test;
 
+use dark_std::sync::SyncHashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use dark_std::sync::SyncHashMap;
 
 //6 ns/iter (+/- 0)
 #[bench]
@@ -50,11 +50,9 @@ fn bench_sync_map_insert_race(b: &mut test::Bencher) {
     let rw = Arc::new(SyncHashMap::new());
     rw.insert(1, 1);
     assert_eq!(rw.len(), 1);
-    let rw2=rw.clone();
-    std::thread::spawn(move ||{
-        loop{
-            rw2.insert(1,1);
-        }
+    let rw2 = rw.clone();
+    std::thread::spawn(move || loop {
+        rw2.insert(1, 1);
     });
     std::thread::sleep(Duration::from_secs(1));
     b.iter(|| {

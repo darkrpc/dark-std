@@ -105,18 +105,6 @@ impl From<&Box<dyn std::error::Error>> for Error {
     }
 }
 
-impl From<time::error::InvalidFormatDescription> for Error {
-    fn from(arg: time::error::InvalidFormatDescription) -> Self {
-        return new(arg.to_string());
-    }
-}
-
-impl From<time::error::Parse> for Error {
-    fn from(arg: time::error::Parse) -> Self {
-        return new(arg.to_string());
-    }
-}
-
 impl From<std::sync::mpsc::RecvError> for Error {
     fn from(e: RecvError) -> Self {
         return new(e.to_string());
