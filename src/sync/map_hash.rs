@@ -189,12 +189,10 @@ where
 
     pub fn iter_mut(&self) -> IterMut<'_, K, V> {
         let m = unsafe { &mut *self.dirty.get() };
-        let mut iter = IterMut {
+        return IterMut {
             _g: self.lock.lock(),
-            inner: None,
+            inner: m.iter_mut(),
         };
-        iter.inner = Some(m.iter_mut());
-        return iter;
     }
 
     pub fn into_iter(self) -> MapIntoIter<K, V> {
@@ -251,20 +249,20 @@ impl<'a, V> Eq for SyncMapRefMut<'_, V> where V: Eq {}
 
 pub struct IterMut<'a, K, V> {
     _g: MutexGuard<'a, ()>,
-    inner: Option<MapIterMut<'a, K, V>>,
+    inner: MapIterMut<'a, K, V>,
 }
 
 impl<'a, K, V> Deref for IterMut<'a, K, V> {
     type Target = MapIterMut<'a, K, V>;
 
     fn deref(&self) -> &Self::Target {
-        self.inner.as_ref().unwrap()
+        &self.inner
     }
 }
 
 impl<'a, K, V> DerefMut for IterMut<'a, K, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner.as_mut().unwrap()
+        &mut self.inner
     }
 }
 
@@ -272,7 +270,7 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     type Item = (&'a K, &'a mut V);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.as_mut().unwrap().next()
+        self.inner.next()
     }
 }
 
