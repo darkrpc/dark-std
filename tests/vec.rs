@@ -1,8 +1,8 @@
 use dark_std::sync::SyncVec;
+use dark_std::sync_vec;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
-use dark_std::sync_vec;
 
 #[test]
 pub fn test_debug() {
@@ -178,11 +178,11 @@ pub fn test_macro() {
 pub fn test_macro2() {
     let v = sync_vec![1];
     v.push(2);
-    assert_eq!(v, sync_vec![1,2]);
+    assert_eq!(v, sync_vec![1, 2]);
 }
 
 #[test]
 pub fn test_macro3() {
     let v = sync_vec![1;2];
-    assert_eq!(v.dirty_ref(), &vec![1;2]);
+    assert_eq!(v.dirty_ref(), &vec![1; 2]);
 }

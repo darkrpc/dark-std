@@ -157,8 +157,9 @@ impl<V> SyncVec<V> {
 
     #[inline]
     pub fn contains(&self, x: &V) -> bool
-        where
-            V: PartialEq{
+    where
+        V: PartialEq,
+    {
         let m = unsafe { &mut *self.dirty.get() };
         m.contains(x)
     }
@@ -211,8 +212,8 @@ impl<'a, V> DerefMut for VecRefMut<'_, V> {
 }
 
 impl<'a, V> Debug for VecRefMut<'_, V>
-    where
-        V: Debug,
+where
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
@@ -287,24 +288,24 @@ impl<V> IntoIterator for SyncVec<V> {
 }
 
 impl<V> Serialize for SyncVec<V>
-    where
-        V: Serialize,
+where
+    V: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         self.dirty_ref().serialize(serializer)
     }
 }
 
 impl<'de, V> serde::Deserialize<'de> for SyncVec<V>
-    where
-        V: serde::Deserialize<'de>,
+where
+    V: serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let m = Vec::deserialize(deserializer)?;
         Ok(Self::from(m))
@@ -312,8 +313,8 @@ impl<'de, V> serde::Deserialize<'de> for SyncVec<V>
 }
 
 impl<V> Debug for SyncVec<V>
-    where
-        V: Debug,
+where
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut m = f.debug_list();
@@ -332,12 +333,11 @@ impl<V> Index<usize> for SyncVec<V> {
     }
 }
 
-impl <V:PartialEq>PartialEq for SyncVec<V>{
+impl<V: PartialEq> PartialEq for SyncVec<V> {
     fn eq(&self, other: &Self) -> bool {
         self.dirty_ref().eq(other.dirty_ref())
     }
 }
-
 
 #[macro_export]
 macro_rules! sync_vec {

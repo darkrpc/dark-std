@@ -1,3 +1,4 @@
+use parking_lot::{Mutex, MutexGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
@@ -6,8 +7,6 @@ use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-
-use parking_lot::{Mutex, MutexGuard};
 
 /// this sync map used to many reader,writer less.space-for-time strategy
 pub struct SyncBtreeMap<K: Eq + Hash + Clone + Ord, V> {
@@ -166,8 +165,9 @@ where
 
     #[inline]
     pub fn contains_key(&self, x: &K) -> bool
-        where
-            K: PartialEq{
+    where
+        K: PartialEq,
+    {
         let m = unsafe { &mut *self.dirty.get() };
         m.contains_key(x)
     }
