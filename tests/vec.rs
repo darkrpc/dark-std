@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 
-
 pub fn test_debug() {
     let m: SyncVec<i32> = SyncVec::new();
     m.push(1);
@@ -17,13 +16,11 @@ pub fn test_empty() {
     assert_eq!(0, m.len());
 }
 
-
 pub fn test_push() {
     let m = SyncVec::<i32>::new();
     let insert = m.push(1);
     assert_eq!(insert.is_none(), true);
 }
-
 
 pub fn test_push2() {
     let m = Arc::new(SyncVec::<String>::new());
@@ -86,14 +83,12 @@ pub fn test_push2() {
 //     wg.wait();
 // }
 
-
 pub fn test_get() {
     let m = SyncVec::<i32>::new();
     m.push(2);
     let g = m.get(0).unwrap();
     assert_eq!(&2, g);
 }
-
 
 pub fn test_get_mut() {
     let m = SyncVec::<i32>::new();
@@ -116,7 +111,6 @@ impl Drop for A {
     }
 }
 
-
 pub fn test_remove() {
     let a = A { inner: 0 };
     let m = SyncVec::<A>::new();
@@ -130,7 +124,6 @@ pub fn test_remove() {
     assert_eq!(None, m.get(0));
     assert_eq!(&A { inner: 0 }, g);
 }
-
 
 pub fn test_remove2() {
     let m = SyncVec::<String>::new();
@@ -154,7 +147,6 @@ pub fn test_remove2() {
     sleep(Duration::from_secs(5));
 }
 
-
 pub fn test_iter() {
     let m = SyncVec::<i32>::new();
     m.push(2);
@@ -162,7 +154,6 @@ pub fn test_iter() {
         assert_eq!(*v, 2);
     }
 }
-
 
 pub fn test_iter_mut() {
     let m = SyncVec::<i32>::new();

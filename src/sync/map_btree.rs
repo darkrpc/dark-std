@@ -2,7 +2,7 @@ use serde::ser::SerializeMap;
 use serde::{Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
-use std::collections::{btree_map::Iter as MapIter, btree_map::IntoIter as MapIntoIter, BTreeMap};
+use std::collections::{btree_map::IntoIter as MapIntoIter, btree_map::Iter as MapIter, BTreeMap};
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
@@ -10,23 +10,21 @@ use std::sync::Arc;
 
 use parking_lot::{Mutex, MutexGuard};
 
-pub type SyncBtreeMap<K, V> = SyncMapImpl<K, V>;
-
 /// this sync map used to many reader,writer less.space-for-time strategy
-pub struct SyncMapImpl<K: Eq + Hash + Clone + Ord, V> {
+pub struct SyncBtreeMap<K: Eq + Hash + Clone + Ord, V> {
     dirty: UnsafeCell<BTreeMap<K, V>>,
     lock: Mutex<()>,
 }
 
 /// this is safety, dirty mutex ensure
-unsafe impl<K: Eq + Hash + Clone + Ord, V> Send for SyncMapImpl<K, V> {}
+unsafe impl<K: Eq + Hash + Clone + Ord, V> Send for SyncBtreeMap<K, V> {}
 
 /// this is safety, dirty mutex ensure
-unsafe impl<K: Eq + Hash + Clone + Ord, V> Sync for SyncMapImpl<K, V> {}
+unsafe impl<K: Eq + Hash + Clone + Ord, V> Sync for SyncBtreeMap<K, V> {}
 
-impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
-    where
-        K: Eq + Hash + Clone,
+impl<K: Eq + Hash + Clone + Ord, V> SyncBtreeMap<K, V>
+where
+    K: Eq + Hash + Clone,
 {
     pub fn new_arc() -> Arc<Self> {
         Arc::new(Self::new())
@@ -51,8 +49,8 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
     }
 
     pub fn insert(&self, k: K, v: V) -> Option<V>
-        where
-            K: Clone + Ord,
+    where
+        K: Clone + Ord,
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
@@ -62,16 +60,16 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
     }
 
     pub fn insert_mut(&mut self, k: K, v: V) -> Option<V>
-        where
-            K: Clone + Ord,
+    where
+        K: Clone + Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.insert(k.clone(), v)
     }
 
     pub fn remove(&self, k: &K) -> Option<V>
-        where
-            K: Clone + Ord,
+    where
+        K: Clone + Ord,
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
@@ -81,8 +79,8 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
     }
 
     pub fn remove_mut(&mut self, k: &K) -> Option<V>
-        where
-            K: Clone + Ord,
+    where
+        K: Clone + Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.remove(k)
@@ -97,8 +95,8 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
     }
 
     pub fn clear(&self)
-        where
-            K: Eq + Hash + Clone + Ord,
+    where
+        K: Eq + Hash + Clone + Ord,
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
@@ -107,8 +105,8 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
     }
 
     pub fn clear_mut(&mut self)
-        where
-            K: Eq + Hash + Clone + Ord,
+    where
+        K: Eq + Hash + Clone + Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.clear();
@@ -119,8 +117,8 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
     pub fn shrink_to_fit_mut(&mut self) {}
 
     pub fn from(map: BTreeMap<K, V>) -> Self
-        where
-            K: Clone + Eq + Hash + Ord,
+    where
+        K: Clone + Eq + Hash + Ord,
     {
         let s = Self::with_map(map);
         s
@@ -146,22 +144,23 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
     /// assert_eq!(map.get(&2).is_none(), true);
     /// ```
     pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
-        where
-            K: Borrow<Q> + Ord,
-            Q: Hash + Eq + Ord,
+    where
+        K: Borrow<Q> + Ord,
+        Q: Hash + Eq + Ord,
     {
-        unsafe {
-            (&*self.dirty.get()).get(k)
-        }
+        unsafe { (&*self.dirty.get()).get(k) }
     }
 
     pub fn get_mut<Q: ?Sized>(&self, k: &Q) -> Option<SyncMapRefMut<'_, V>>
-        where
-            K: Borrow<Q> + Ord,
-            Q: Hash + Eq + Ord,
+    where
+        K: Borrow<Q> + Ord,
+        Q: Hash + Eq + Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
-        let mut r = SyncMapRefMut { _g: self.lock.lock(), value: None };
+        let mut r = SyncMapRefMut {
+            _g: self.lock.lock(),
+            value: None,
+        };
         r.value = Some(m.get_mut(k)?);
         Some(r)
     }
@@ -172,7 +171,10 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
 
     pub fn iter_mut(&self) -> IterMut<'_, K, V> {
         let m = unsafe { &mut *self.dirty.get() };
-        let mut iter = IterMut { _g: self.lock.lock(), inner: None };
+        let mut iter = IterMut {
+            _g: self.lock.lock(),
+            inner: None,
+        };
         iter.inner = Some(m.iter_mut());
         return iter;
     }
@@ -185,7 +187,6 @@ impl<K: Eq + Hash + Clone + Ord, V> SyncMapImpl<K, V>
         unsafe { &*self.dirty.get() }
     }
 }
-
 
 pub struct SyncMapRefMut<'a, V> {
     _g: MutexGuard<'a, ()>,
@@ -207,8 +208,8 @@ impl<'a, V> DerefMut for SyncMapRefMut<'_, V> {
 }
 
 impl<'a, V> Debug for SyncMapRefMut<'_, V>
-    where
-        V: Debug,
+where
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
@@ -216,8 +217,8 @@ impl<'a, V> Debug for SyncMapRefMut<'_, V>
 }
 
 impl<'a, V> PartialEq<Self> for SyncMapRefMut<'_, V>
-    where
-        V: Eq,
+where
+    V: Eq,
 {
     fn eq(&self, other: &Self) -> bool {
         self.value.eq(&other.value)
@@ -253,7 +254,7 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     }
 }
 
-impl<'a, K: Eq + Hash + Clone + Ord, V> IntoIterator for &'a SyncMapImpl<K, V> {
+impl<'a, K: Eq + Hash + Clone + Ord, V> IntoIterator for &'a SyncBtreeMap<K, V> {
     type Item = (&'a K, &'a V);
     type IntoIter = MapIter<'a, K, V>;
 
@@ -262,7 +263,7 @@ impl<'a, K: Eq + Hash + Clone + Ord, V> IntoIterator for &'a SyncMapImpl<K, V> {
     }
 }
 
-impl<K: Eq + Hash + Clone + Ord, V> IntoIterator for SyncMapImpl<K, V> {
+impl<K: Eq + Hash + Clone + Ord, V> IntoIterator for SyncBtreeMap<K, V> {
     type Item = (K, V);
     type IntoIter = MapIntoIter<K, V>;
 
@@ -271,20 +272,20 @@ impl<K: Eq + Hash + Clone + Ord, V> IntoIterator for SyncMapImpl<K, V> {
     }
 }
 
-impl<K: Eq + Hash + Clone + Ord, V> From<BTreeMap<K, V>> for SyncMapImpl<K, V> {
+impl<K: Eq + Hash + Clone + Ord, V> From<BTreeMap<K, V>> for SyncBtreeMap<K, V> {
     fn from(arg: BTreeMap<K, V>) -> Self {
         Self::from(arg)
     }
 }
 
-impl<K: Eq + Hash + Clone + Ord, V> serde::Serialize for SyncMapImpl<K, V>
-    where
-        K: Eq + Hash + Clone + Serialize,
-        V: Serialize,
+impl<K: Eq + Hash + Clone + Ord, V> serde::Serialize for SyncBtreeMap<K, V>
+where
+    K: Eq + Hash + Clone + Serialize,
+    V: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         let mut m = serializer.serialize_map(Some(self.len()))?;
         for (k, v) in self.iter() {
@@ -295,24 +296,24 @@ impl<K: Eq + Hash + Clone + Ord, V> serde::Serialize for SyncMapImpl<K, V>
     }
 }
 
-impl<'de, K, V> serde::Deserialize<'de> for SyncMapImpl<K, V>
-    where
-        K: Eq + Hash + Clone + serde::Deserialize<'de> + Ord,
-        V: serde::Deserialize<'de>,
+impl<'de, K, V> serde::Deserialize<'de> for SyncBtreeMap<K, V>
+where
+    K: Eq + Hash + Clone + serde::Deserialize<'de> + Ord,
+    V: serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let m = BTreeMap::deserialize(deserializer)?;
         Ok(Self::from(m))
     }
 }
 
-impl<K: Eq + Hash + Clone + Ord, V> Debug for SyncMapImpl<K, V>
-    where
-        K: Eq + Hash + Clone + Debug,
-        V: Debug,
+impl<K: Eq + Hash + Clone + Ord, V> Debug for SyncBtreeMap<K, V>
+where
+    K: Eq + Hash + Clone + Debug,
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut m = f.debug_map();

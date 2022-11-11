@@ -135,8 +135,7 @@ pub fn test_remove() {
 pub fn test_remove2() {
     let m = SyncHashMap::<i32, String>::new();
     for i in 0..1000000 {
-        m.insert(i, String::from("safdfasdfasdfasdfasdfasdfsadf"))
-            ;
+        m.insert(i, String::from("safdfasdfasdfasdfasdfasdfsadf"));
     }
     sleep(Duration::from_secs(2));
     println!("start clean");
@@ -145,8 +144,7 @@ pub fn test_remove2() {
     println!("done,now you can see mem usage");
     sleep(Duration::from_secs(5));
     for i in 0..1000000 {
-        m.insert(i, String::from("safdfasdfasdfasdfasdfasdfsadf"))
-            ;
+        m.insert(i, String::from("safdfasdfasdfasdfasdfasdfsadf"));
     }
     sleep(Duration::from_secs(2));
     println!("start clean");

@@ -1,4 +1,4 @@
-
+use parking_lot::{Mutex, MutexGuard};
 use serde::ser::SerializeSeq;
 use serde::{Deserializer, Serialize, Serializer};
 use std::cell::UnsafeCell;
@@ -7,22 +7,19 @@ use std::ops::{Deref, DerefMut, Index};
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use std::sync::Arc;
 use std::vec::IntoIter;
-use parking_lot::{Mutex, MutexGuard};
 
-pub type SyncVec<V> = SyncVecImpl<V>;
-
-pub struct SyncVecImpl<V> {
+pub struct SyncVec<V> {
     dirty: UnsafeCell<Vec<V>>,
     lock: Mutex<()>,
 }
 
 /// this is safety, dirty mutex ensure
-unsafe impl<V> Send for SyncVecImpl<V> {}
+unsafe impl<V> Send for SyncVec<V> {}
 
 /// this is safety, dirty mutex ensure
-unsafe impl<V> Sync for SyncVecImpl<V> {}
+unsafe impl<V> Sync for SyncVec<V> {}
 
-impl<V> SyncVecImpl<V> {
+impl<V> SyncVec<V> {
     pub fn new_arc() -> Arc<Self> {
         Arc::new(Self::new())
     }
@@ -49,7 +46,7 @@ impl<V> SyncVecImpl<V> {
     }
 
     pub fn insert(&self, index: usize, v: V) -> Option<V> {
-        let g=self.lock.lock();
+        let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         m.insert(index, v);
         drop(g);
@@ -57,7 +54,7 @@ impl<V> SyncVecImpl<V> {
     }
 
     pub fn push(&self, v: V) -> Option<V> {
-        let g=self.lock.lock();
+        let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         m.push(v);
         drop(g);
@@ -71,7 +68,7 @@ impl<V> SyncVecImpl<V> {
     }
 
     pub fn pop(&self) -> Option<V> {
-        let g=self.lock.lock();
+        let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         match m.pop() {
             None => {
@@ -97,7 +94,7 @@ impl<V> SyncVecImpl<V> {
     }
 
     pub fn remove(&self, index: usize) -> Option<V> {
-        let g=self.lock.lock();
+        let g = self.lock.lock();
         match self.get(index) {
             None => None,
             Some(_) => {
@@ -118,14 +115,14 @@ impl<V> SyncVecImpl<V> {
     }
 
     pub fn clear(&self) {
-        let g=self.lock.lock();
+        let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         m.clear();
         drop(g);
     }
 
     pub fn shrink_to_fit(&self) {
-        let g=self.lock.lock();
+        let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         m.shrink_to_fit();
         drop(g);
@@ -143,12 +140,15 @@ impl<V> SyncVecImpl<V> {
     }
 
     pub fn get_uncheck(&self, index: usize) -> &V {
-        unsafe{(&*self.dirty.get()).get_unchecked(index)}
+        unsafe { (&*self.dirty.get()).get_unchecked(index) }
     }
 
     pub fn get_mut(&self, index: usize) -> Option<VecRefMut<'_, V>> {
         let m = unsafe { &mut *self.dirty.get() };
-        let mut r = VecRefMut { _g: self.lock.lock(), value: None };
+        let mut r = VecRefMut {
+            _g: self.lock.lock(),
+            value: None,
+        };
         r.value = Some(m.get_mut(index)?);
         Some(r)
     }
@@ -159,7 +159,10 @@ impl<V> SyncVecImpl<V> {
 
     pub fn iter_mut(&self) -> IterMut<'_, V> {
         let m = unsafe { &mut *self.dirty.get() };
-        let mut iter = IterMut { _g: self.lock.lock(), inner: None };
+        let mut iter = IterMut {
+            _g: self.lock.lock(),
+            inner: None,
+        };
         iter.inner = Some(m.iter_mut());
         return iter;
     }
@@ -194,8 +197,8 @@ impl<'a, V> DerefMut for VecRefMut<'_, V> {
 }
 
 impl<'a, V> Debug for VecRefMut<'_, V>
-    where
-        V: Debug,
+where
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
@@ -251,7 +254,7 @@ impl<'a, V> Iterator for IterMut<'a, V> {
     }
 }
 
-impl<'a, V> IntoIterator for &'a SyncVecImpl<V> {
+impl<'a, V> IntoIterator for &'a SyncVec<V> {
     type Item = &'a V;
     type IntoIter = std::slice::Iter<'a, V>;
 
@@ -260,7 +263,7 @@ impl<'a, V> IntoIterator for &'a SyncVecImpl<V> {
     }
 }
 
-impl<V> IntoIterator for SyncVecImpl<V> {
+impl<V> IntoIterator for SyncVec<V> {
     type Item = V;
     type IntoIter = IntoIter<V>;
 
@@ -269,13 +272,13 @@ impl<V> IntoIterator for SyncVecImpl<V> {
     }
 }
 
-impl<V> Serialize for SyncVecImpl<V>
-    where
-        V: Serialize,
+impl<V> Serialize for SyncVec<V>
+where
+    V: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         let mut m = serializer.serialize_seq(Some(self.len()))?;
         for v in self.iter() {
@@ -285,22 +288,22 @@ impl<V> Serialize for SyncVecImpl<V>
     }
 }
 
-impl<'de, V> serde::Deserialize<'de> for SyncVecImpl<V>
-    where
-        V: serde::Deserialize<'de>,
+impl<'de, V> serde::Deserialize<'de> for SyncVec<V>
+where
+    V: serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let m = Vec::deserialize(deserializer)?;
         Ok(Self::from(m))
     }
 }
 
-impl<V> Debug for SyncVecImpl<V>
-    where
-        V: Debug,
+impl<V> Debug for SyncVec<V>
+where
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut m = f.debug_list();
@@ -311,7 +314,7 @@ impl<V> Debug for SyncVecImpl<V>
     }
 }
 
-impl<V> Index<usize> for SyncVecImpl<V> {
+impl<V> Index<usize> for SyncVec<V> {
     type Output = V;
 
     fn index(&self, index: usize) -> &Self::Output {

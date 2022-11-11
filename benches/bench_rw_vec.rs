@@ -1,15 +1,15 @@
 #![feature(test)]
 extern crate test;
 
-use std::sync::RwLock;
 use dark_std::sync::SyncVec;
+use std::sync::RwLock;
 
 //13ns
 #[bench]
 fn bench_rw_vec(b: &mut test::Bencher) {
     let rw = RwLock::new(vec![1]);
     b.iter(|| {
-        let _=rw.read().unwrap().get(0);
+        let _ = rw.read().unwrap().get(0);
     });
 }
 
@@ -17,7 +17,10 @@ fn bench_rw_vec(b: &mut test::Bencher) {
 #[bench]
 fn bench_sync_vec(b: &mut test::Bencher) {
     let rw = SyncVec::new();
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     rt.block_on(async {
         rw.push(1).await;
     });
