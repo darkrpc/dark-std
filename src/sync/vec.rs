@@ -328,7 +328,7 @@ impl<V> Index<usize> for SyncVec<V> {
     type Output = V;
 
     fn index(&self, index: usize) -> &Self::Output {
-        self.get(index).unwrap()
+        self.get_uncheck(index)
     }
 }
 
