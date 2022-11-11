@@ -43,14 +43,18 @@ impl<V> SyncVecImpl<V> {
     }
 
     pub async fn insert(&self, index: usize, v: V) -> Option<V> {
+        let g=self.lock.lock().await;
         let m = unsafe { &mut *self.dirty.get() };
         m.insert(index, v);
+        drop(g);
         None
     }
 
     pub async fn push(&self, v: V) -> Option<V> {
+        let g=self.lock.lock().await;
         let m = unsafe { &mut *self.dirty.get() };
         m.push(v);
+        drop(g);
         None
     }
 
@@ -61,12 +65,14 @@ impl<V> SyncVecImpl<V> {
     }
 
     pub async fn pop(&self) -> Option<V> {
+        let g=self.lock.lock().await;
         let m = unsafe { &mut *self.dirty.get() };
         match m.pop() {
             None => {
                 return None;
             }
             Some(s) => {
+                drop(g);
                 return Some(s);
             }
         }
@@ -85,9 +91,11 @@ impl<V> SyncVecImpl<V> {
     }
 
     pub async fn remove(&self, index: usize) -> Option<V> {
+        let g=self.lock.lock().await;
         match self.get(index) {
             None => None,
             Some(_) => {
+                drop(g);
                 let m = unsafe { &mut *self.dirty.get() };
                 let v = m.remove(index);
                 Some(v)
@@ -104,13 +112,17 @@ impl<V> SyncVecImpl<V> {
     }
 
     pub async fn clear(&self) {
+        let g=self.lock.lock().await;
         let m = unsafe { &mut *self.dirty.get() };
         m.clear();
+        drop(g);
     }
 
     pub async fn shrink_to_fit(&self) {
+        let g=self.lock.lock().await;
         let m = unsafe { &mut *self.dirty.get() };
-        m.shrink_to_fit()
+        m.shrink_to_fit();
+        drop(g);
     }
 
     pub fn from(map: Vec<V>) -> Self {
@@ -251,7 +263,7 @@ impl<V> IntoIterator for SyncVecImpl<V> {
     }
 }
 
-impl<V> serde::Serialize for SyncVecImpl<V>
+impl<V> Serialize for SyncVecImpl<V>
     where
         V: Serialize,
 {
