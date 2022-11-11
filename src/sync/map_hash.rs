@@ -197,14 +197,6 @@ where
     }
 }
 
-pub unsafe fn change_lifetime_const<'a, 'b, T>(x: &'a T) -> &'b T {
-    &*(x as *const T)
-}
-
-pub unsafe fn change_lifetime_mut<'a, 'b, T>(x: &'a mut T) -> &'b mut T {
-    &mut *(x as *mut T)
-}
-
 pub struct SyncMapRefMut<'a, V> {
     _g: MutexGuard<'a, ()>,
     value: Option<&'a mut V>,
