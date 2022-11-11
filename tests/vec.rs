@@ -2,7 +2,9 @@ use dark_std::sync::SyncVec;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
+use dark_std::sync_vec;
 
+#[test]
 pub fn test_debug() {
     let m: SyncVec<i32> = SyncVec::new();
     m.push(1);
@@ -16,12 +18,14 @@ pub fn test_empty() {
     assert_eq!(0, m.len());
 }
 
+#[test]
 pub fn test_push() {
     let m = SyncVec::<i32>::new();
     let insert = m.push(1);
     assert_eq!(insert.is_none(), true);
 }
 
+#[test]
 pub fn test_push2() {
     let m = Arc::new(SyncVec::<String>::new());
     m.push("1".to_string());
@@ -161,4 +165,24 @@ pub fn test_iter_mut() {
     for v in m.iter_mut() {
         assert_eq!(*v, 2);
     }
+}
+
+#[test]
+pub fn test_macro() {
+    let v = sync_vec![];
+    v.push(1);
+    assert_eq!(v, sync_vec![1]);
+}
+
+#[test]
+pub fn test_macro2() {
+    let v = sync_vec![1];
+    v.push(2);
+    assert_eq!(v, sync_vec![1,2]);
+}
+
+#[test]
+pub fn test_macro3() {
+    let v = sync_vec![1;2];
+    assert_eq!(v.dirty_ref(), &vec![1;2]);
 }

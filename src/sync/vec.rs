@@ -331,3 +331,23 @@ impl<V> Index<usize> for SyncVec<V> {
         self.get(index).unwrap()
     }
 }
+
+impl <V:PartialEq>PartialEq for SyncVec<V>{
+    fn eq(&self, other: &Self) -> bool {
+        self.dirty_ref().eq(other.dirty_ref())
+    }
+}
+
+
+#[macro_export]
+macro_rules! sync_vec {
+    () => (
+        $crate::sync::SyncVec::new()
+    );
+    ($elem:expr; $n:expr) => (
+        $crate::sync::SyncVec::with_vec(vec![$elem;$n])
+    );
+    ($($x:expr),+ $(,)?) => (
+        $crate::sync::SyncVec::with_vec(vec![$($x),+,])
+    );
+}
