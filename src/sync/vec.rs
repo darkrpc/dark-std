@@ -1,5 +1,4 @@
 use parking_lot::{Mutex, MutexGuard};
-use serde::ser::SerializeSeq;
 use serde::{Deserializer, Serialize, Serializer};
 use std::cell::UnsafeCell;
 use std::fmt::{Debug, Formatter};
@@ -188,6 +187,10 @@ impl<V> SyncVec<V> {
     pub fn dirty_ref(&self) -> &Vec<V> {
         unsafe { &*self.dirty.get() }
     }
+
+    pub fn into_inner(self) -> Vec<V> {
+        self.dirty.into_inner()
+    }
 }
 
 pub struct VecRefMut<'a, V> {
@@ -293,11 +296,7 @@ where
     where
         S: Serializer,
     {
-        let mut m = serializer.serialize_seq(Some(self.len()))?;
-        for v in self.iter() {
-            m.serialize_element(v)?;
-        }
-        m.end()
+        self.dirty_ref().serialize(serializer)
     }
 }
 

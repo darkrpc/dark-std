@@ -1,4 +1,3 @@
-use serde::ser::SerializeMap;
 use serde::{Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
@@ -186,6 +185,10 @@ where
     pub fn dirty_ref(&self) -> &BTreeMap<K, V> {
         unsafe { &*self.dirty.get() }
     }
+
+    pub fn into_inner(self) -> BTreeMap<K, V> {
+        self.dirty.into_inner()
+    }
 }
 
 pub struct SyncMapRefMut<'a, V> {
@@ -287,12 +290,7 @@ where
     where
         S: Serializer,
     {
-        let mut m = serializer.serialize_map(Some(self.len()))?;
-        for (k, v) in self.iter() {
-            m.serialize_key(k)?;
-            m.serialize_value(v)?;
-        }
-        m.end()
+        self.dirty_ref().serialize(serializer)
     }
 }
 
