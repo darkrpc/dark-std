@@ -1,6 +1,5 @@
 # dark-std
-dark-std is an Implementation of asynchronous containers build on tokio.
-It uses a read-write separation design borrowed from Golang
+dark-std is an Implementation of asynchronous
 
 * defer!          (defer macro)
 * SyncHashMap     (async HashMap)
@@ -13,7 +12,7 @@ for example:
     #[tokio::test]
     pub async fn test_get() {
         let m = SyncHashMap::<i32, i32>::new();
-        let insert = m.insert(1, 2).await;
+        let insert = m.insert(1, 2);
         
         let g = m.get(&1).unwrap();//don't need lock and await
         assert_eq!(&2, g);
