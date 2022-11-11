@@ -32,7 +32,7 @@ fn bench_sync_map_insert(b: &mut test::Bencher) {
     });
 }
 
-//
+// //17 ns/iter (+/- 0)
 // #[bench]
 // fn bench_dash_map_insert(b: &mut test::Bencher) {
 //     let rw = dashmap::DashMap::new();
