@@ -9,20 +9,20 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 /// this sync map used to many reader,writer less.space-for-time strategy
-pub struct SyncBtreeMap<K: Eq + Hash + Clone + Ord, V> {
+pub struct SyncBtreeMap<K: Eq + Hash, V> {
     dirty: UnsafeCell<BTreeMap<K, V>>,
     lock: Mutex<()>,
 }
 
 /// this is safety, dirty mutex ensure
-unsafe impl<K: Eq + Hash + Clone + Ord, V> Send for SyncBtreeMap<K, V> {}
+unsafe impl<K: Eq + Hash, V> Send for SyncBtreeMap<K, V> {}
 
 /// this is safety, dirty mutex ensure
-unsafe impl<K: Eq + Hash + Clone + Ord, V> Sync for SyncBtreeMap<K, V> {}
+unsafe impl<K: Eq + Hash, V> Sync for SyncBtreeMap<K, V> {}
 
-impl<K: Eq + Hash + Clone + Ord, V> SyncBtreeMap<K, V>
+impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
 where
-    K: Eq + Hash + Clone,
+    K: Eq + Hash,
 {
     pub fn new_arc() -> Arc<Self> {
         Arc::new(Self::new())
@@ -48,26 +48,26 @@ where
 
     pub fn insert(&self, k: K, v: V) -> Option<V>
     where
-        K: Clone + Ord,
+        K: Ord,
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
-        let r = m.insert(k.clone(), v);
+        let r = m.insert(k, v);
         drop(g);
         r
     }
 
     pub fn insert_mut(&mut self, k: K, v: V) -> Option<V>
     where
-        K: Clone + Ord,
+        K: Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
-        m.insert(k.clone(), v)
+        m.insert(k, v)
     }
 
     pub fn remove(&self, k: &K) -> Option<V>
     where
-        K: Clone + Ord,
+        K: Ord,
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
@@ -78,7 +78,7 @@ where
 
     pub fn remove_mut(&mut self, k: &K) -> Option<V>
     where
-        K: Clone + Ord,
+        K: Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.remove(k)
@@ -94,7 +94,7 @@ where
 
     pub fn clear(&self)
     where
-        K: Eq + Hash + Clone + Ord,
+        K: Eq + Hash,
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
@@ -104,7 +104,7 @@ where
 
     pub fn clear_mut(&mut self)
     where
-        K: Eq + Hash + Clone + Ord,
+        K: Eq + Hash,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.clear();
@@ -116,7 +116,7 @@ where
 
     pub fn from(map: BTreeMap<K, V>) -> Self
     where
-        K: Clone + Eq + Hash + Ord,
+        K: Eq + Hash,
     {
         let s = Self::with_map(map);
         s
@@ -166,7 +166,7 @@ where
     #[inline]
     pub fn contains_key(&self, x: &K) -> bool
     where
-        K: PartialEq,
+        K: PartialEq + Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.contains_key(x)
@@ -263,7 +263,7 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     }
 }
 
-impl<'a, K: Eq + Hash + Clone + Ord, V> IntoIterator for &'a SyncBtreeMap<K, V> {
+impl<'a, K: Eq + Hash, V> IntoIterator for &'a SyncBtreeMap<K, V> {
     type Item = (&'a K, &'a V);
     type IntoIter = MapIter<'a, K, V>;
 
@@ -272,7 +272,7 @@ impl<'a, K: Eq + Hash + Clone + Ord, V> IntoIterator for &'a SyncBtreeMap<K, V> 
     }
 }
 
-impl<K: Eq + Hash + Clone + Ord, V> IntoIterator for SyncBtreeMap<K, V> {
+impl<K: Eq + Hash, V> IntoIterator for SyncBtreeMap<K, V> {
     type Item = (K, V);
     type IntoIter = MapIntoIter<K, V>;
 
@@ -281,15 +281,15 @@ impl<K: Eq + Hash + Clone + Ord, V> IntoIterator for SyncBtreeMap<K, V> {
     }
 }
 
-impl<K: Eq + Hash + Clone + Ord, V> From<BTreeMap<K, V>> for SyncBtreeMap<K, V> {
+impl<K: Eq + Hash, V> From<BTreeMap<K, V>> for SyncBtreeMap<K, V> {
     fn from(arg: BTreeMap<K, V>) -> Self {
         Self::from(arg)
     }
 }
 
-impl<K: Eq + Hash + Clone + Ord, V> serde::Serialize for SyncBtreeMap<K, V>
+impl<K: Eq + Hash, V> serde::Serialize for SyncBtreeMap<K, V>
 where
-    K: Eq + Hash + Clone + Serialize,
+    K: Eq + Hash + Serialize + Ord,
     V: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -302,7 +302,7 @@ where
 
 impl<'de, K, V> serde::Deserialize<'de> for SyncBtreeMap<K, V>
 where
-    K: Eq + Hash + Clone + serde::Deserialize<'de> + Ord,
+    K: Eq + Hash + Ord + serde::Deserialize<'de>,
     V: serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -314,9 +314,9 @@ where
     }
 }
 
-impl<K: Eq + Hash + Clone + Ord, V> Debug for SyncBtreeMap<K, V>
+impl<K: Eq + Hash, V> Debug for SyncBtreeMap<K, V>
 where
-    K: Eq + Hash + Clone + Debug,
+    K: Eq + Hash + Debug,
     V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
