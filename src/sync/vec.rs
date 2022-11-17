@@ -147,12 +147,10 @@ impl<V> SyncVec<V> {
     #[inline]
     pub fn get_mut(&self, index: usize) -> Option<VecRefMut<'_, V>> {
         let m = unsafe { &mut *self.dirty.get() };
-        let mut r = VecRefMut {
+        Some(VecRefMut {
             _g: self.lock.lock(),
-            value: None,
-        };
-        r.value = Some(m.get_mut(index)?);
-        Some(r)
+            value: Some(m.get_mut(index)?),
+        })
     }
 
     #[inline]
