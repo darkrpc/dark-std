@@ -1,4 +1,4 @@
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::cell::UnsafeCell;
 use std::fmt::{Debug, Formatter};
@@ -9,7 +9,7 @@ use std::vec::IntoIter;
 
 pub struct SyncVec<V> {
     dirty: UnsafeCell<Vec<V>>,
-    lock: Mutex<()>,
+    lock: ReentrantMutex<()>,
 }
 
 /// this is safety, dirty mutex ensure
@@ -191,7 +191,7 @@ impl<V> SyncVec<V> {
 }
 
 pub struct VecRefMut<'a, V> {
-    _g: MutexGuard<'a, ()>,
+    _g: ReentrantMutexGuard<'a, ()>,
     value: Option<&'a mut V>,
 }
 
@@ -241,7 +241,7 @@ impl<'a, V> Iterator for Iter<'a, V> {
 }
 
 pub struct IterMut<'a, V> {
-    _g: MutexGuard<'a, ()>,
+    _g: ReentrantMutexGuard<'a, ()>,
     inner: Option<SliceIterMut<'a, V>>,
 }
 

@@ -1,4 +1,4 @@
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
@@ -11,7 +11,7 @@ use std::sync::Arc;
 /// this sync map used to many reader,writer less.space-for-time strategy
 pub struct SyncBtreeMap<K: Eq + Hash, V> {
     dirty: UnsafeCell<BTreeMap<K, V>>,
-    lock: Mutex<()>,
+    lock: ReentrantMutex<()>,
 }
 
 /// this is safety, dirty mutex ensure
@@ -198,7 +198,7 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
 }
 
 pub struct SyncMapRefMut<'a, V> {
-    _g: MutexGuard<'a, ()>,
+    _g: ReentrantMutexGuard<'a, ()>,
     value: &'a mut V,
 }
 
@@ -237,7 +237,7 @@ impl<'a, V> PartialEq<Self> for SyncMapRefMut<'_, V>
 impl<'a, V> Eq for SyncMapRefMut<'_, V> where V: Eq {}
 
 pub struct IterMut<'a, K, V> {
-    _g: MutexGuard<'a, ()>,
+    _g: ReentrantMutexGuard<'a, ()>,
     inner: std::collections::btree_map::IterMut<'a, K, V>,
 }
 

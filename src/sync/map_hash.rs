@@ -1,4 +1,4 @@
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
@@ -14,7 +14,7 @@ use std::sync::Arc;
 /// this sync map used to many reader,writer less.space-for-time strategy
 pub struct SyncHashMap<K: Eq + Hash, V> {
     dirty: UnsafeCell<Map<K, V>>,
-    lock: Mutex<()>,
+    lock: ReentrantMutex<()>,
 }
 
 /// this is safety, dirty mutex ensure
@@ -194,7 +194,7 @@ impl<K, V> SyncHashMap<K, V>
 }
 
 pub struct SyncMapRefMut<'a, V> {
-    _g: MutexGuard<'a, ()>,
+    _g: ReentrantMutexGuard<'a, ()>,
     value: &'a mut V,
 }
 
@@ -233,7 +233,7 @@ impl<'a, V> PartialEq<Self> for SyncMapRefMut<'_, V>
 impl<'a, V> Eq for SyncMapRefMut<'_, V> where V: Eq {}
 
 pub struct IterMut<'a, K, V> {
-    _g: MutexGuard<'a, ()>,
+    _g: ReentrantMutexGuard<'a, ()>,
     inner: MapIterMut<'a, K, V>,
 }
 
