@@ -9,7 +9,7 @@ use std::sync::RwLock;
 fn bench_rw_vec(b: &mut test::Bencher) {
     let rw = RwLock::new(vec![1]);
     b.iter(|| {
-        let _ = rw.read().unwrap().get(0);
+        let _a = rw.read().unwrap().get(0);
     });
 }
 
@@ -19,16 +19,32 @@ fn bench_sync_vec(b: &mut test::Bencher) {
     let rw = SyncVec::new();
     rw.push(1);
     assert_eq!(rw.len(), 1);
+    let mut i = 0;
     b.iter(|| {
-        rw.get(0);
+        let _a = rw.get(i);
+        i += 1;
     });
 }
 
-//test bench_sync_vec_push ... bench:           5 ns/iter (+/- 0)
+//test bench_sync_vec_push ... bench:           17 ns/iter (+/- 2)
+#[bench]
+fn bench_vec_push(b: &mut test::Bencher) {
+    let rw = std::sync::Mutex::new(vec![1]);
+    let mut i = 0;
+    b.iter(|| {
+        rw.lock().unwrap().push(i);
+        i += 1;
+    });
+}
+
+
+//test bench_sync_vec_push ... bench:           17 ns/iter (+/- 7)
 #[bench]
 fn bench_sync_vec_push(b: &mut test::Bencher) {
     let rw = SyncVec::new();
+    let mut i = 0;
     b.iter(|| {
-        rw.push(0);
+        rw.push(i);
+        i += 1;
     });
 }
