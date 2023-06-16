@@ -3,7 +3,7 @@ use serde::{Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
 use std::collections::{btree_map::IntoIter as MapIntoIter, btree_map::Iter as MapIter, BTreeMap};
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -225,6 +225,15 @@ impl<'a, V> Debug for SyncMapRefMut<'_, V>
     }
 }
 
+impl<'a, V> Display for SyncMapRefMut<'_, V>
+    where
+        V: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.value.fmt(f)
+    }
+}
+
 impl<'a, V> PartialEq<Self> for SyncMapRefMut<'_, V>
     where
         V: Eq,
@@ -320,6 +329,17 @@ impl<K: Eq + Hash, V> Debug for SyncBtreeMap<K, V>
         V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.dirty_ref().fmt(f)
+    }
+}
+
+impl<K: Eq + Hash, V> Display for SyncBtreeMap<K, V>
+    where
+        K: Eq + Hash + Display,
+        V: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Pointer;
         self.dirty_ref().fmt(f)
     }
 }

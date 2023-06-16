@@ -6,7 +6,7 @@ use std::collections::{
     hash_map::IntoIter as MapIntoIter, hash_map::Iter as MapIter, hash_map::IterMut as MapIterMut,
     HashMap as Map, HashMap,
 };
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -225,6 +225,15 @@ impl<'a, V> Debug for SyncMapRefMut<'_, V>
     }
 }
 
+impl<'a, V> Display for SyncMapRefMut<'_, V>
+    where
+        V: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.value.fmt(f)
+    }
+}
+
 impl<'a, V> PartialEq<Self> for SyncMapRefMut<'_, V>
     where
         V: Eq,
@@ -326,6 +335,17 @@ impl<K, V> Debug for SyncHashMap<K, V>
         V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.dirty_ref().fmt(f)
+    }
+}
+
+impl<K, V> Display for SyncHashMap<K, V>
+    where
+        K: Eq + Hash + Display,
+        V: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Pointer;
         self.dirty_ref().fmt(f)
     }
 }

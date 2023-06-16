@@ -1,7 +1,7 @@
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::cell::UnsafeCell;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Deref, DerefMut, Index};
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use std::sync::Arc;
@@ -218,6 +218,15 @@ impl<'a, V> Debug for VecRefMut<'_, V>
     }
 }
 
+impl<'a, V> Display for VecRefMut<'_, V>
+    where
+        V: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.value.as_ref().unwrap().fmt(f)
+    }
+}
+
 pub struct Iter<'a, V> {
     inner: Option<SliceIter<'a, *const V>>,
 }
@@ -315,6 +324,16 @@ impl<V> Debug for SyncVec<V>
         V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.dirty_ref().fmt(f)
+    }
+}
+
+impl<V> Display for SyncVec<V>
+    where
+        V: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Pointer;
         self.dirty_ref().fmt(f)
     }
 }
