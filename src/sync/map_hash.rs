@@ -152,10 +152,12 @@ impl<K, V> SyncHashMap<K, V>
             K: Borrow<Q>,
             Q: Hash + Eq,
     {
-        let m = unsafe { &mut *self.dirty.get() };
         Some(SyncMapRefMut {
             _g: self.lock.lock(),
-            value: m.get_mut(k)?,
+            value: {
+                let m = unsafe { &mut *self.dirty.get() };
+                m.get_mut(k)?
+            },
         })
     }
 
@@ -173,10 +175,12 @@ impl<K, V> SyncHashMap<K, V>
     }
 
     pub fn iter_mut(&self) -> IterMut<'_, K, V> {
-        let m = unsafe { &mut *self.dirty.get() };
         return IterMut {
             _g: self.lock.lock(),
-            inner: m.iter_mut(),
+            inner: {
+                let m = unsafe { &mut *self.dirty.get() };
+                m.iter_mut()
+            },
         };
     }
 
