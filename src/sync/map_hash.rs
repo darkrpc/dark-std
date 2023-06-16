@@ -147,12 +147,12 @@ impl<K, V> SyncHashMap<K, V>
     }
 
     #[inline]
-    pub fn get_mut<Q: ?Sized>(&self, k: &Q) -> Option<SyncMapRefMut<'_, V>>
+    pub fn get_mut<Q: ?Sized>(&self, k: &Q) -> Option<HashMapRefMut<'_, V>>
         where
             K: Borrow<Q>,
             Q: Hash + Eq,
     {
-        Some(SyncMapRefMut {
+        Some(HashMapRefMut {
             _g: self.lock.lock(),
             value: {
                 let m = unsafe { &mut *self.dirty.get() };
@@ -174,8 +174,8 @@ impl<K, V> SyncHashMap<K, V>
         unsafe { (&*self.dirty.get()).iter() }
     }
 
-    pub fn iter_mut(&self) -> IterMut<'_, K, V> {
-        return IterMut {
+    pub fn iter_mut(&self) -> HashIterMut<'_, K, V> {
+        return HashIterMut {
             _g: self.lock.lock(),
             inner: {
                 let m = unsafe { &mut *self.dirty.get() };
@@ -197,12 +197,12 @@ impl<K, V> SyncHashMap<K, V>
     }
 }
 
-pub struct SyncMapRefMut<'a, V> {
+pub struct HashMapRefMut<'a, V> {
     _g: ReentrantMutexGuard<'a, ()>,
     value: &'a mut V,
 }
 
-impl<'a, V> Deref for SyncMapRefMut<'_, V> {
+impl<'a, V> Deref for HashMapRefMut<'_, V> {
     type Target = V;
 
     fn deref(&self) -> &Self::Target {
@@ -210,13 +210,13 @@ impl<'a, V> Deref for SyncMapRefMut<'_, V> {
     }
 }
 
-impl<'a, V> DerefMut for SyncMapRefMut<'_, V> {
+impl<'a, V> DerefMut for HashMapRefMut<'_, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.value
     }
 }
 
-impl<'a, V> Debug for SyncMapRefMut<'_, V>
+impl<'a, V> Debug for HashMapRefMut<'_, V>
     where
         V: Debug,
 {
@@ -225,7 +225,7 @@ impl<'a, V> Debug for SyncMapRefMut<'_, V>
     }
 }
 
-impl<'a, V> Display for SyncMapRefMut<'_, V>
+impl<'a, V> Display for HashMapRefMut<'_, V>
     where
         V: Display,
 {
@@ -234,7 +234,7 @@ impl<'a, V> Display for SyncMapRefMut<'_, V>
     }
 }
 
-impl<'a, V> PartialEq<Self> for SyncMapRefMut<'_, V>
+impl<'a, V> PartialEq<Self> for HashMapRefMut<'_, V>
     where
         V: Eq,
 {
@@ -243,14 +243,14 @@ impl<'a, V> PartialEq<Self> for SyncMapRefMut<'_, V>
     }
 }
 
-impl<'a, V> Eq for SyncMapRefMut<'_, V> where V: Eq {}
+impl<'a, V> Eq for HashMapRefMut<'_, V> where V: Eq {}
 
-pub struct IterMut<'a, K, V> {
+pub struct HashIterMut<'a, K, V> {
     _g: ReentrantMutexGuard<'a, ()>,
     inner: MapIterMut<'a, K, V>,
 }
 
-impl<'a, K, V> Deref for IterMut<'a, K, V> {
+impl<'a, K, V> Deref for HashIterMut<'a, K, V> {
     type Target = MapIterMut<'a, K, V>;
 
     fn deref(&self) -> &Self::Target {
@@ -258,13 +258,13 @@ impl<'a, K, V> Deref for IterMut<'a, K, V> {
     }
 }
 
-impl<'a, K, V> DerefMut for IterMut<'a, K, V> {
+impl<'a, K, V> DerefMut for HashIterMut<'a, K, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
-impl<'a, K, V> Iterator for IterMut<'a, K, V> {
+impl<'a, K, V> Iterator for HashIterMut<'a, K, V> {
     type Item = (&'a K, &'a mut V);
 
     fn next(&mut self) -> Option<Self::Item> {

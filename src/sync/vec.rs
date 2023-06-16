@@ -166,9 +166,9 @@ impl<V> SyncVec<V> {
         unsafe { (&*self.dirty.get()).iter() }
     }
 
-    pub fn iter_mut(&self) -> IterMut<'_, V> {
+    pub fn iter_mut(&self) -> VecIterMut<'_, V> {
         let m = unsafe { &mut *self.dirty.get() };
-        let mut iter = IterMut {
+        let mut iter = VecIterMut {
             _g: self.lock.lock(),
             inner: None,
         };
@@ -249,12 +249,12 @@ impl<'a, V> Iterator for Iter<'a, V> {
     }
 }
 
-pub struct IterMut<'a, V> {
+pub struct VecIterMut<'a, V> {
     _g: ReentrantMutexGuard<'a, ()>,
     inner: Option<SliceIterMut<'a, V>>,
 }
 
-impl<'a, V> Deref for IterMut<'a, V> {
+impl<'a, V> Deref for VecIterMut<'a, V> {
     type Target = SliceIterMut<'a, V>;
 
     fn deref(&self) -> &Self::Target {
@@ -262,13 +262,13 @@ impl<'a, V> Deref for IterMut<'a, V> {
     }
 }
 
-impl<'a, V> DerefMut for IterMut<'a, V> {
+impl<'a, V> DerefMut for VecIterMut<'a, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.inner.as_mut().unwrap()
     }
 }
 
-impl<'a, V> Iterator for IterMut<'a, V> {
+impl<'a, V> Iterator for VecIterMut<'a, V> {
     type Item = &'a mut V;
 
     fn next(&mut self) -> Option<Self::Item> {
