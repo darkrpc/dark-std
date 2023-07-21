@@ -58,14 +58,6 @@ impl<V> SyncVec<V> {
         None
     }
 
-    pub fn index_mut(&self, index: usize, v: V) -> Option<V> {
-        let g = self.lock.lock();
-        let m = unsafe { &mut *self.dirty.get() };
-        m[index] = v;
-        drop(g);
-        None
-    }
-
     pub fn push(&self, v: V) -> Option<V> {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
