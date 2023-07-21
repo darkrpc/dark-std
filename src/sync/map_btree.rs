@@ -20,6 +20,17 @@ unsafe impl<K: Eq + Hash, V> Send for SyncBtreeMap<K, V> {}
 /// this is safety, dirty mutex ensure
 unsafe impl<K: Eq + Hash, V> Sync for SyncBtreeMap<K, V> {}
 
+impl<K, V> std::ops::Index<&K> for SyncBtreeMap<K, V>
+    where
+        K: Eq + Hash,
+{
+    type Output = V;
+
+    fn index(&self, index: &K) -> &Self::Output {
+        unsafe { &(&*self.dirty.get())[index] }
+    }
+}
+
 impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
     where
         K: Eq + Hash,
