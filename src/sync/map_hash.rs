@@ -23,6 +23,17 @@ unsafe impl<K: Eq + Hash, V> Send for SyncHashMap<K, V> {}
 /// this is safety, dirty mutex ensure
 unsafe impl<K: Eq + Hash, V> Sync for SyncHashMap<K, V> {}
 
+impl<K, V> std::ops::Index<&K> for SyncHashMap<K, V>
+where
+    K: Eq + Hash,
+{
+    type Output = V;
+
+    fn index(&self, index: &K) -> &Self::Output {
+        unsafe { &(&*self.dirty.get())[index] }
+    }
+}
+
 impl<K, V> SyncHashMap<K, V>
     where
         K: Eq + Hash,
