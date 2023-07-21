@@ -22,7 +22,7 @@ unsafe impl<K: Eq + Hash, V> Sync for SyncBtreeMap<K, V> {}
 
 impl<K, V> std::ops::Index<&K> for SyncBtreeMap<K, V>
     where
-        K: Eq + Hash,
+        K: Eq + Hash + Ord,
 {
     type Output = V;
 
