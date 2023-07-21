@@ -68,6 +68,16 @@ impl<V> SyncVec<V> {
         None
     }
 
+    pub fn pushes(&self, arr: Vec<V>) -> Option<V> {
+        let g = self.lock.lock();
+        let m = unsafe { &mut *self.dirty.get() };
+        for v in arr {
+            m.push(v);
+        }
+        drop(g);
+        None
+    }
+
     pub fn push_mut(&mut self, v: V) -> Option<V> {
         let m = unsafe { &mut *self.dirty.get() };
         m.push(v);
