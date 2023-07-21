@@ -54,7 +54,7 @@ impl<V> SyncVec<V> {
 
     pub fn set(&self, index: usize, v: V) -> Option<V> {
         let m = unsafe { &mut *self.dirty.get() };
-        m.insert(index, v);
+        m[index] = v;
         None
     }
 
