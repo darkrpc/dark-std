@@ -52,14 +52,10 @@ impl<V> SyncVec<V> {
         None
     }
 
-    pub fn insert_mut(&mut self, index: usize, v: V) -> Option<V> {
+    pub fn set(&self, index: usize, v: V) -> Option<V> {
         let m = unsafe { &mut *self.dirty.get() };
         m.insert(index, v);
         None
-    }
-
-    pub fn set(&self, index: usize, v: V) -> Option<V> {
-        self.index_mut(index, v)
     }
 
     pub fn index_mut(&self, index: usize, v: V) -> Option<V> {
