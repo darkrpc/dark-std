@@ -37,56 +37,7 @@ pub fn test_push2() {
     assert_eq!(&"3".to_string(), m.get(2).unwrap());
 }
 
-// #[test]
-// pub fn test_insert3() {
-//     let m = Arc::new(SyncVec::<i32>::new());
-//     let wg = WaitGroup::new();
-//     for _ in 0..100000 {
-//         let wg1 = wg.clone();
-//         let wg2 = wg.clone();
-//         let m1 = m.clone();
-//         let m2 = m.clone();
-//         co!(move ||{
-//              m1.pop();
-//              let insert = m1.push( 2);
-//              drop(wg1);
-//         });
-//         co!(move ||{
-//              m2.pop();
-//              let insert = m2.push( 2);
-//              drop(wg2);
-//         });
-//     }
-//     wg.wait();
-// }
-
-// #[test]
-// pub fn test_insert4() {
-//     let m = Arc::new(SyncVec::<i32>::new());
-//     let wg = WaitGroup::new();
-//     for _ in 0..8 {
-//         let wg1 = wg.clone();
-//         let wg2 = wg.clone();
-//         let m1 = m.clone();
-//         let m2 = m.clone();
-//         co!(move ||{
-//              for i in 0..10000{
-//                  m1.pop();
-//                  let insert = m1.push( i);
-//              }
-//              drop(wg1);
-//         });
-//         co!(move ||{
-//              for i in 0..10000{
-//                  m2.pop();
-//                  let insert = m2.push( i);
-//              }
-//              drop(wg2);
-//         });
-//     }
-//     wg.wait();
-// }
-
+#[test]
 pub fn test_get() {
     let m = SyncVec::<i32>::new();
     m.push(2);
@@ -94,6 +45,7 @@ pub fn test_get() {
     assert_eq!(&2, g);
 }
 
+#[test]
 pub fn test_get_mut() {
     let m = SyncVec::<i32>::new();
     m.push(2);
@@ -115,6 +67,7 @@ impl Drop for A {
     }
 }
 
+#[test]
 pub fn test_remove() {
     let a = A { inner: 0 };
     let m = SyncVec::<A>::new();
@@ -129,6 +82,7 @@ pub fn test_remove() {
     assert_eq!(&A { inner: 0 }, g);
 }
 
+#[test]
 pub fn test_remove2() {
     let m = SyncVec::<String>::new();
     for _ in 0..1000000 {
@@ -151,6 +105,7 @@ pub fn test_remove2() {
     sleep(Duration::from_secs(5));
 }
 
+#[test]
 pub fn test_iter() {
     let m = SyncVec::<i32>::new();
     m.push(2);
@@ -159,6 +114,7 @@ pub fn test_iter() {
     }
 }
 
+#[test]
 pub fn test_iter_mut() {
     let m = SyncVec::<i32>::new();
     m.push(2);
