@@ -98,9 +98,11 @@ impl<V> SyncVec<V> {
     }
 
     pub fn remove(&self, index: usize) -> Option<V> {
+        let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         if m.len() > index {
             let v = m.remove(index);
+            drop(g);
             Some(v)
         } else {
             None
