@@ -4,7 +4,7 @@ use std::borrow::Borrow;
 use std::cell::UnsafeCell;
 use std::collections::{
     hash_map::IntoIter as MapIntoIter, hash_map::Iter as MapIter, hash_map::IterMut as MapIterMut,
-    HashMap as Map, HashMap,
+    HashMap as Map,
 };
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
@@ -199,11 +199,11 @@ impl<K, V> SyncHashMap<K, V>
         self.dirty.into_inner().into_iter()
     }
 
-    pub fn dirty_ref(&self) -> &HashMap<K, V> {
+    pub fn dirty_ref(&self) -> &Map<K, V> {
         unsafe { &*self.dirty.get() }
     }
 
-    pub fn into_inner(self) -> HashMap<K, V> {
+    pub fn into_inner(self) -> Map<K, V> {
         self.dirty.into_inner()
     }
 }
