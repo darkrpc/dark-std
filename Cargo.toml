@@ -1,6 +1,6 @@
 [package]
 name = "dark-std"
-version = "0.2.10"
+version = "0.2.11"
 edition = "2021"
 authors = ["zhuxiujia@qq.com"]
 license = "MIT/Apache-2.0"
@@ -9,12 +9,18 @@ description = "dark-std is an Implementation of asynchronous containers build on
 readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+map_index = ["indexmap"]
+
+
 [dependencies]
 serde = "1.0"
 flume = {version="0.11",default-features = false,features = ["async"]}
 parking_lot = "0.12"
+indexmap = {version = "2.2.5",features = ["serde"],optional = true}
 
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
 crossbeam = { version = "0.8"}
+dark-std = { path=".",features = ["map_index"]}
