@@ -181,7 +181,7 @@ impl<K, V> SyncHashMap<K, V>
         m.contains_key(x)
     }
 
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, K, V> {
+    pub fn iter(&self) -> MapIter<'_, K, V> {
         unsafe { (&*self.dirty.get()).iter() }
     }
 
