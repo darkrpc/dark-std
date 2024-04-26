@@ -165,7 +165,7 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
     }
 
     #[inline]
-    pub fn get_mut(&self, k: &K) -> Option<BtreeMapRefMut<'_,K, V>>
+    pub fn get_mut(&self, k: &K) -> Option<BtreeMapRefMut<'_, K, V>>
         where
             K: Hash + Eq + Clone + Ord,
     {
@@ -219,14 +219,22 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
     }
 }
 
-pub struct BtreeMapRefMut<'a, K: Eq + Hash, V> {
+pub struct BtreeMapRefMut<'a, K: Eq + Hash + Ord, V> {
     k: &'a K,
     m: &'a SyncBtreeMap<K, V>,
     _g: ReentrantMutexGuard<'a, ()>,
     value: &'a mut V,
 }
 
-impl<'a,K: Eq + Hash, V> Deref for BtreeMapRefMut<'_, K,V> {
+impl<'a, K: Eq + Hash + Ord, V> Drop for BtreeMapRefMut<'a, K, V> {
+    fn drop(&mut self) {
+        let m = unsafe { &mut *self.m.locks.get() };
+        _ = m.remove(self.k);
+    }
+}
+
+
+impl<'a, K: Eq + Hash + Ord, V> Deref for BtreeMapRefMut<'_, K, V> {
     type Target = V;
 
     fn deref(&self) -> &Self::Target {
@@ -234,13 +242,13 @@ impl<'a,K: Eq + Hash, V> Deref for BtreeMapRefMut<'_, K,V> {
     }
 }
 
-impl<'a,K: Eq + Hash, V> DerefMut for BtreeMapRefMut<'_,K, V> {
+impl<'a, K: Eq + Hash + Ord, V> DerefMut for BtreeMapRefMut<'_, K, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.value
     }
 }
 
-impl<'a,K: Eq + Hash, V> Debug for BtreeMapRefMut<'_,K, V>
+impl<'a, K: Eq + Hash + Ord, V> Debug for BtreeMapRefMut<'_, K, V>
     where
         V: Debug,
 {
@@ -249,7 +257,7 @@ impl<'a,K: Eq + Hash, V> Debug for BtreeMapRefMut<'_,K, V>
     }
 }
 
-impl<'a,K: Eq + Hash, V> Display for BtreeMapRefMut<'_,K, V>
+impl<'a, K: Eq + Hash + Ord, V> Display for BtreeMapRefMut<'_, K, V>
     where
         V: Display,
 {
@@ -258,7 +266,7 @@ impl<'a,K: Eq + Hash, V> Display for BtreeMapRefMut<'_,K, V>
     }
 }
 
-impl<'a,K: Eq + Hash, V> PartialEq<Self> for BtreeMapRefMut<'_,K, V>
+impl<'a, K: Eq + Hash + Ord, V> PartialEq<Self> for BtreeMapRefMut<'_, K, V>
     where
         V: Eq,
 {
@@ -267,7 +275,7 @@ impl<'a,K: Eq + Hash, V> PartialEq<Self> for BtreeMapRefMut<'_,K, V>
     }
 }
 
-impl<'a,K: Eq + Hash, V> Eq for BtreeMapRefMut<'_, K,V> where V: Eq {}
+impl<'a, K: Eq + Hash + Ord, V> Eq for BtreeMapRefMut<'_, K, V> where V: Eq {}
 
 pub struct BtreeIterMut<'a, K, V> {
     _g: ReentrantMutexGuard<'a, ()>,
