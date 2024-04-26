@@ -169,13 +169,14 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
         where
             K: Hash + Eq + Clone + Ord,
     {
+        let get_mut_lock = self.lock.lock();
         let m = unsafe { &mut *self.locks.get() };
         if m.contains_key(k) == false {
             let g = ReentrantMutex::new(());
             m.insert(k.clone(), g);
         }
         let g = m.get(k).unwrap();
-
+        drop(get_mut_lock);
         let m = unsafe { &mut *self.dirty.get() };
         Some(BtreeMapRefMut {
             k: unsafe { std::mem::transmute(&k) },

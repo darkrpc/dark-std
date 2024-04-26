@@ -166,12 +166,14 @@ impl<K, V> SyncHashMap<K, V>
         where
             K: Hash + Eq + Clone,
     {
+        let get_mut_lock = self.lock.lock();
         let m = unsafe { &mut *self.locks.get() };
         if m.contains_key(k) == false {
             let g = ReentrantMutex::new(());
             m.insert(k.clone(), g);
         }
         let g = m.get(k).unwrap();
+        drop(get_mut_lock);
         Some(HashMapRefMut {
             k: unsafe { std::mem::transmute(&k) },
             m: self,
