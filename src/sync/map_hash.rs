@@ -173,8 +173,7 @@ impl<K, V> SyncHashMap<K, V>
             m.insert(k.clone(), g);
         }
         let g = m.get(k).unwrap();
-        drop(get_mut_lock);
-        Some(HashMapRefMut {
+        let v = HashMapRefMut {
             k: unsafe { std::mem::transmute(&k) },
             m: self,
             _g: g.lock(),
@@ -182,7 +181,9 @@ impl<K, V> SyncHashMap<K, V>
                 let m = unsafe { &mut *self.dirty.get() };
                 m.get_mut(k)?
             },
-        })
+        };
+        drop(get_mut_lock);
+        Some(v)
     }
 
     #[inline]

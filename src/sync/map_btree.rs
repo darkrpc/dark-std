@@ -176,14 +176,15 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
             m.insert(k.clone(), g);
         }
         let g = m.get(k).unwrap();
-        drop(get_mut_lock);
         let m = unsafe { &mut *self.dirty.get() };
-        Some(BtreeMapRefMut {
+        let v = BtreeMapRefMut {
             k: unsafe { std::mem::transmute(&k) },
             m: self,
             _g: g.lock(),
             value: m.get_mut(k)?,
-        })
+        };
+        drop(get_mut_lock);
+        Some(v)
     }
 
     #[inline]
