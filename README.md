@@ -6,6 +6,7 @@ dark-std is an Implementation of asynchronous
 * SyncBtreeMap    (async BtreeMap)
 * SyncVec         (async Vec)
 * WaitGroup       (async/blocking all support WaitGroup)
+* AtomicDuration  (atomic duration)
 
 for example:
 ```rust

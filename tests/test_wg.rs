@@ -10,11 +10,6 @@ async fn test_wg() {
         sleep(Duration::from_secs(1)).await;
         drop(wg2);
     });
-    let wg2 = wg.clone();
-    tokio::spawn(async move {
-        sleep(Duration::from_secs(1)).await;
-        drop(wg2);
-    });
     wg.wait_async().await;
     println!("all done");
 }
