@@ -174,6 +174,18 @@ pub fn test_iter_mut() {
     }
 }
 
+#[test]
+pub fn test_get_mut_not_eq_key() {
+    let m = SyncHashMap::<i32, i32>::new();
+    m.insert(1, 1);
+    m.insert(2, 2);
+
+    let v1 = m.get_mut(&1).unwrap();
+    let v2 = m.get_mut(&2).unwrap();
+    assert_eq!(*v1 + 1, *v2);
+}
+
+
 // #[test]
 // pub fn test_smoke2() {
 //     let wait1 = WaitGroup::new();
