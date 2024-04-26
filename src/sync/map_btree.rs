@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 /// this sync map used to many reader,writer less.space-for-time strategy
 pub struct SyncBtreeMap<K: Eq + Hash, V> {
+    locks: UnsafeCell<BTreeMap<K, ReentrantMutex<()>>>,
     dirty: UnsafeCell<BTreeMap<K, V>>,
     lock: ReentrantMutex<()>,
 }
@@ -41,6 +42,7 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
 
     pub fn new() -> Self {
         Self {
+            locks: UnsafeCell::new(BTreeMap::new()),
             dirty: UnsafeCell::new(BTreeMap::new()),
             lock: Default::default(),
         }
@@ -52,6 +54,7 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
 
     pub fn with_map(map: BTreeMap<K, V>) -> Self {
         Self {
+            locks: UnsafeCell::new(BTreeMap::new()),
             dirty: UnsafeCell::new(map),
             lock: Default::default(),
         }
@@ -162,14 +165,22 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
     }
 
     #[inline]
-    pub fn get_mut<Q: ?Sized>(&self, k: &Q) -> Option<BtreeMapRefMut<'_, V>>
+    pub fn get_mut(&self, k: &K) -> Option<BtreeMapRefMut<'_,K, V>>
         where
-            K: Borrow<Q> + Ord,
-            Q: Hash + Eq + Ord,
+            K: Hash + Eq + Clone + Ord,
     {
+        let m = unsafe { &mut *self.locks.get() };
+        if m.contains_key(k) == false {
+            let g = ReentrantMutex::new(());
+            m.insert(k.clone(), g);
+        }
+        let g = m.get(k).unwrap();
+
         let m = unsafe { &mut *self.dirty.get() };
         Some(BtreeMapRefMut {
-            _g: self.lock.lock(),
+            k: unsafe { std::mem::transmute(&k) },
+            m: self,
+            _g: g.lock(),
             value: m.get_mut(k)?,
         })
     }
@@ -208,12 +219,14 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
     }
 }
 
-pub struct BtreeMapRefMut<'a, V> {
+pub struct BtreeMapRefMut<'a, K: Eq + Hash, V> {
+    k: &'a K,
+    m: &'a SyncBtreeMap<K, V>,
     _g: ReentrantMutexGuard<'a, ()>,
     value: &'a mut V,
 }
 
-impl<'a, V> Deref for BtreeMapRefMut<'_, V> {
+impl<'a,K: Eq + Hash, V> Deref for BtreeMapRefMut<'_, K,V> {
     type Target = V;
 
     fn deref(&self) -> &Self::Target {
@@ -221,13 +234,13 @@ impl<'a, V> Deref for BtreeMapRefMut<'_, V> {
     }
 }
 
-impl<'a, V> DerefMut for BtreeMapRefMut<'_, V> {
+impl<'a,K: Eq + Hash, V> DerefMut for BtreeMapRefMut<'_,K, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.value
     }
 }
 
-impl<'a, V> Debug for BtreeMapRefMut<'_, V>
+impl<'a,K: Eq + Hash, V> Debug for BtreeMapRefMut<'_,K, V>
     where
         V: Debug,
 {
@@ -236,7 +249,7 @@ impl<'a, V> Debug for BtreeMapRefMut<'_, V>
     }
 }
 
-impl<'a, V> Display for BtreeMapRefMut<'_, V>
+impl<'a,K: Eq + Hash, V> Display for BtreeMapRefMut<'_,K, V>
     where
         V: Display,
 {
@@ -245,7 +258,7 @@ impl<'a, V> Display for BtreeMapRefMut<'_, V>
     }
 }
 
-impl<'a, V> PartialEq<Self> for BtreeMapRefMut<'_, V>
+impl<'a,K: Eq + Hash, V> PartialEq<Self> for BtreeMapRefMut<'_,K, V>
     where
         V: Eq,
 {
@@ -254,7 +267,7 @@ impl<'a, V> PartialEq<Self> for BtreeMapRefMut<'_, V>
     }
 }
 
-impl<'a, V> Eq for BtreeMapRefMut<'_, V> where V: Eq {}
+impl<'a,K: Eq + Hash, V> Eq for BtreeMapRefMut<'_, K,V> where V: Eq {}
 
 pub struct BtreeIterMut<'a, K, V> {
     _g: ReentrantMutexGuard<'a, ()>,
