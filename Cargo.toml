@@ -1,6 +1,6 @@
 [package]
 name = "dark-std"
-version = "0.2.11"
+version = "0.2.12"
 edition = "2021"
 authors = ["zhuxiujia@qq.com"]
 license = "MIT/Apache-2.0"
