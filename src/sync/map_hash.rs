@@ -25,8 +25,8 @@ unsafe impl<K: Eq + Hash, V> Send for SyncHashMap<K, V> {}
 unsafe impl<K: Eq + Hash, V> Sync for SyncHashMap<K, V> {}
 
 impl<K, V> std::ops::Index<&K> for SyncHashMap<K, V>
-    where
-        K: Eq + Hash,
+where
+    K: Eq + Hash,
 {
     type Output = V;
 
@@ -36,8 +36,8 @@ impl<K, V> std::ops::Index<&K> for SyncHashMap<K, V>
 }
 
 impl<K, V> SyncHashMap<K, V>
-    where
-        K: Eq + Hash,
+where
+    K: Eq + Hash,
 {
     pub fn new_arc() -> Arc<Self> {
         Arc::new(Self::new())
@@ -126,8 +126,8 @@ impl<K, V> SyncHashMap<K, V>
     }
 
     pub fn from(map: Map<K, V>) -> Self
-        where
-            K: Eq + Hash,
+    where
+        K: Eq + Hash,
     {
         let s = Self::with_map(map);
         s
@@ -154,17 +154,17 @@ impl<K, V> SyncHashMap<K, V>
     /// ```
     #[inline]
     pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
-        where
-            K: Borrow<Q>,
-            Q: Hash + Eq,
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
     {
         unsafe { (&*self.dirty.get()).get(k) }
     }
 
     #[inline]
     pub fn get_mut(&self, k: &K) -> Option<HashMapRefMut<'_, K, V>>
-        where
-            K: Hash + Eq + Clone,
+    where
+        K: Hash + Eq + Clone,
     {
         let get_mut_lock = self.lock.lock();
         let m = unsafe { &mut *self.locks.get() };
@@ -188,8 +188,8 @@ impl<K, V> SyncHashMap<K, V>
 
     #[inline]
     pub fn contains_key(&self, x: &K) -> bool
-        where
-            K: PartialEq,
+    where
+        K: PartialEq,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.contains_key(x)
@@ -251,8 +251,8 @@ impl<'a, K: Eq + Hash, V> DerefMut for HashMapRefMut<'_, K, V> {
 }
 
 impl<'a, K: Eq + Hash, V> Debug for HashMapRefMut<'_, K, V>
-    where
-        V: Debug,
+where
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
@@ -260,8 +260,8 @@ impl<'a, K: Eq + Hash, V> Debug for HashMapRefMut<'_, K, V>
 }
 
 impl<'a, K: Eq + Hash, V> Display for HashMapRefMut<'_, K, V>
-    where
-        V: Display,
+where
+    V: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
@@ -269,8 +269,8 @@ impl<'a, K: Eq + Hash, V> Display for HashMapRefMut<'_, K, V>
 }
 
 impl<'a, K: Eq + Hash, V> PartialEq<Self> for HashMapRefMut<'_, K, V>
-    where
-        V: Eq,
+where
+    V: Eq,
 {
     fn eq(&self, other: &Self) -> bool {
         self.value.eq(&other.value)
@@ -307,8 +307,8 @@ impl<'a, K, V> Iterator for HashIterMut<'a, K, V> {
 }
 
 impl<'a, K, V> IntoIterator for &'a SyncHashMap<K, V>
-    where
-        K: Eq + Hash,
+where
+    K: Eq + Hash,
 {
     type Item = (&'a K, &'a V);
     type IntoIter = MapIter<'a, K, V>;
@@ -319,8 +319,8 @@ impl<'a, K, V> IntoIterator for &'a SyncHashMap<K, V>
 }
 
 impl<K, V> IntoIterator for SyncHashMap<K, V>
-    where
-        K: Eq + Hash,
+where
+    K: Eq + Hash,
 {
     type Item = (K, V);
     type IntoIter = MapIntoIter<K, V>;
@@ -337,26 +337,26 @@ impl<K: Eq + Hash, V> From<Map<K, V>> for SyncHashMap<K, V> {
 }
 
 impl<K, V> serde::Serialize for SyncHashMap<K, V>
-    where
-        K: Eq + Hash + Serialize,
-        V: Serialize,
+where
+    K: Eq + Hash + Serialize,
+    V: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         self.dirty_ref().serialize(serializer)
     }
 }
 
 impl<'de, K, V> serde::Deserialize<'de> for SyncHashMap<K, V>
-    where
-        K: Eq + Hash + serde::Deserialize<'de>,
-        V: serde::Deserialize<'de>,
+where
+    K: Eq + Hash + serde::Deserialize<'de>,
+    V: serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let m = Map::deserialize(deserializer)?;
         Ok(Self::from(m))
@@ -364,9 +364,9 @@ impl<'de, K, V> serde::Deserialize<'de> for SyncHashMap<K, V>
 }
 
 impl<K, V> Debug for SyncHashMap<K, V>
-    where
-        K: Eq + Hash + Debug,
-        V: Debug,
+where
+    K: Eq + Hash + Debug,
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.dirty_ref().fmt(f)
@@ -374,9 +374,9 @@ impl<K, V> Debug for SyncHashMap<K, V>
 }
 
 impl<K, V> Display for SyncHashMap<K, V>
-    where
-        K: Eq + Hash + Display,
-        V: Display,
+where
+    K: Eq + Hash + Display,
+    V: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use std::fmt::Pointer;
@@ -384,10 +384,15 @@ impl<K, V> Display for SyncHashMap<K, V>
     }
 }
 
-
 impl<K: Clone + Eq + Hash, V: Clone> Clone for SyncHashMap<K, V> {
     fn clone(&self) -> Self {
         let c = (*self.dirty_ref()).clone();
         SyncHashMap::from(c)
+    }
+}
+
+impl<K: Eq + Hash, V> Default for SyncHashMap<K, V> {
+    fn default() -> Self {
+        SyncHashMap::new()
     }
 }

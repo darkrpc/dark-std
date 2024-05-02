@@ -185,7 +185,6 @@ pub fn test_get_mut_not_eq_key() {
     assert_eq!(*v1 + 1, *v2);
 }
 
-
 // #[test]
 // pub fn test_smoke2() {
 //     let wait1 = WaitGroup::new();

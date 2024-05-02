@@ -1,4 +1,4 @@
-use dark_std::sync::{SyncBtreeMap};
+use dark_std::sync::SyncBtreeMap;
 use std::ops::Deref;
 use std::sync::Arc;
 

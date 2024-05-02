@@ -8,10 +8,10 @@ pub mod wg;
 
 pub mod duration;
 
-pub use map_btree::{SyncBtreeMap};
-pub use map_hash::{SyncHashMap};
+pub use duration::*;
+pub use map_btree::SyncBtreeMap;
+pub use map_hash::SyncHashMap;
 #[cfg(feature = "map_index")]
-pub use map_index::{SyncIndexMap};
+pub use map_index::SyncIndexMap;
 pub use vec::*;
 pub use wg::*;
-pub use duration::*;

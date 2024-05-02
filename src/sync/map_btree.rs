@@ -22,8 +22,8 @@ unsafe impl<K: Eq + Hash, V> Send for SyncBtreeMap<K, V> {}
 unsafe impl<K: Eq + Hash, V> Sync for SyncBtreeMap<K, V> {}
 
 impl<K, V> std::ops::Index<&K> for SyncBtreeMap<K, V>
-    where
-        K: Eq + Hash + Ord,
+where
+    K: Eq + Hash + Ord,
 {
     type Output = V;
 
@@ -33,8 +33,8 @@ impl<K, V> std::ops::Index<&K> for SyncBtreeMap<K, V>
 }
 
 impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
-    where
-        K: Eq + Hash,
+where
+    K: Eq + Hash,
 {
     pub fn new_arc() -> Arc<Self> {
         Arc::new(Self::new())
@@ -61,8 +61,8 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
     }
 
     pub fn insert(&self, k: K, v: V) -> Option<V>
-        where
-            K: Ord,
+    where
+        K: Ord,
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
@@ -72,16 +72,16 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
     }
 
     pub fn insert_mut(&mut self, k: K, v: V) -> Option<V>
-        where
-            K: Ord,
+    where
+        K: Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.insert(k, v)
     }
 
     pub fn remove(&self, k: &K) -> Option<V>
-        where
-            K: Ord,
+    where
+        K: Ord,
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
@@ -91,8 +91,8 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
     }
 
     pub fn remove_mut(&mut self, k: &K) -> Option<V>
-        where
-            K: Ord,
+    where
+        K: Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.remove(k)
@@ -107,8 +107,8 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
     }
 
     pub fn clear(&self)
-        where
-            K: Eq + Hash,
+    where
+        K: Eq + Hash,
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
@@ -117,8 +117,8 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
     }
 
     pub fn clear_mut(&mut self)
-        where
-            K: Eq + Hash,
+    where
+        K: Eq + Hash,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.clear();
@@ -129,8 +129,8 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
     pub fn shrink_to_fit_mut(&mut self) {}
 
     pub fn from(map: BTreeMap<K, V>) -> Self
-        where
-            K: Eq + Hash,
+    where
+        K: Eq + Hash,
     {
         let s = Self::with_map(map);
         s
@@ -157,17 +157,17 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
     /// ```
     #[inline]
     pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
-        where
-            K: Borrow<Q> + Ord,
-            Q: Hash + Eq + Ord,
+    where
+        K: Borrow<Q> + Ord,
+        Q: Hash + Eq + Ord,
     {
         unsafe { (&*self.dirty.get()).get(k) }
     }
 
     #[inline]
     pub fn get_mut(&self, k: &K) -> Option<BtreeMapRefMut<'_, K, V>>
-        where
-            K: Hash + Eq + Clone + Ord,
+    where
+        K: Hash + Eq + Clone + Ord,
     {
         let get_mut_lock = self.lock.lock();
         let m = unsafe { &mut *self.locks.get() };
@@ -189,8 +189,8 @@ impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
 
     #[inline]
     pub fn contains_key(&self, x: &K) -> bool
-        where
-            K: PartialEq + Ord,
+    where
+        K: PartialEq + Ord,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.contains_key(x)
@@ -235,7 +235,6 @@ impl<'a, K: Eq + Hash + Ord, V> Drop for BtreeMapRefMut<'a, K, V> {
     }
 }
 
-
 impl<'a, K: Eq + Hash + Ord, V> Deref for BtreeMapRefMut<'_, K, V> {
     type Target = V;
 
@@ -251,8 +250,8 @@ impl<'a, K: Eq + Hash + Ord, V> DerefMut for BtreeMapRefMut<'_, K, V> {
 }
 
 impl<'a, K: Eq + Hash + Ord, V> Debug for BtreeMapRefMut<'_, K, V>
-    where
-        V: Debug,
+where
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
@@ -260,8 +259,8 @@ impl<'a, K: Eq + Hash + Ord, V> Debug for BtreeMapRefMut<'_, K, V>
 }
 
 impl<'a, K: Eq + Hash + Ord, V> Display for BtreeMapRefMut<'_, K, V>
-    where
-        V: Display,
+where
+    V: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
@@ -269,8 +268,8 @@ impl<'a, K: Eq + Hash + Ord, V> Display for BtreeMapRefMut<'_, K, V>
 }
 
 impl<'a, K: Eq + Hash + Ord, V> PartialEq<Self> for BtreeMapRefMut<'_, K, V>
-    where
-        V: Eq,
+where
+    V: Eq,
 {
     fn eq(&self, other: &Self) -> bool {
         self.value.eq(&other.value)
@@ -331,26 +330,26 @@ impl<K: Eq + Hash, V> From<BTreeMap<K, V>> for SyncBtreeMap<K, V> {
 }
 
 impl<K: Eq + Hash, V> serde::Serialize for SyncBtreeMap<K, V>
-    where
-        K: Eq + Hash + Serialize + Ord,
-        V: Serialize,
+where
+    K: Eq + Hash + Serialize + Ord,
+    V: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         self.dirty_ref().serialize(serializer)
     }
 }
 
 impl<'de, K, V> serde::Deserialize<'de> for SyncBtreeMap<K, V>
-    where
-        K: Eq + Hash + Ord + serde::Deserialize<'de>,
-        V: serde::Deserialize<'de>,
+where
+    K: Eq + Hash + Ord + serde::Deserialize<'de>,
+    V: serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let m = BTreeMap::deserialize(deserializer)?;
         Ok(Self::from(m))
@@ -358,9 +357,9 @@ impl<'de, K, V> serde::Deserialize<'de> for SyncBtreeMap<K, V>
 }
 
 impl<K: Eq + Hash, V> Debug for SyncBtreeMap<K, V>
-    where
-        K: Eq + Hash + Debug,
-        V: Debug,
+where
+    K: Eq + Hash + Debug,
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.dirty_ref().fmt(f)
@@ -368,9 +367,9 @@ impl<K: Eq + Hash, V> Debug for SyncBtreeMap<K, V>
 }
 
 impl<K: Eq + Hash, V> Display for SyncBtreeMap<K, V>
-    where
-        K: Eq + Hash + Display,
-        V: Display,
+where
+    K: Eq + Hash + Display,
+    V: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use std::fmt::Pointer;
@@ -397,5 +396,11 @@ impl<K: Clone + Eq + Hash, V: Clone> Clone for SyncBtreeMap<K, V> {
     fn clone(&self) -> Self {
         let c = (*self.dirty_ref()).clone();
         SyncBtreeMap::from(c)
+    }
+}
+
+impl<K: Eq + Hash, V> Default for SyncBtreeMap<K, V> {
+    fn default() -> Self {
+        SyncBtreeMap::new()
     }
 }
