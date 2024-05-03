@@ -54,7 +54,7 @@ where
         Self {
             dirty: UnsafeCell::new(Map::with_capacity(capacity)),
             lock: Default::default(),
-            locks: UnsafeCell::new(Map::default()),
+            locks: UnsafeCell::new(Map::with_capacity(capacity)),
         }
     }
 

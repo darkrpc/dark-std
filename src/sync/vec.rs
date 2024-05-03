@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 pub struct SyncVec<V> {
     dirty: UnsafeCell<Vec<V>>,
     lock: ReentrantMutex<()>,
-    //locks: UnsafeCell<IndexMap<usize, ReentrantMutex<()>>>,
+    locks: UnsafeCell<IndexMap<usize, ReentrantMutex<()>>>,
 }
 
 /// this is safety, dirty mutex ensure
@@ -29,6 +29,7 @@ impl<V> SyncVec<V> {
         Self {
             dirty: UnsafeCell::new(Vec::new()),
             lock: Default::default(),
+            locks: UnsafeCell::new(IndexMap::default()),
         }
     }
 
@@ -36,13 +37,15 @@ impl<V> SyncVec<V> {
         Self {
             dirty: UnsafeCell::new(Vec::with_capacity(capacity)),
             lock: Default::default(),
+            locks: UnsafeCell::new(IndexMap::with_capacity(capacity)),
         }
     }
 
     pub fn with_vec(vec: Vec<V>) -> Self {
         Self {
-            dirty: UnsafeCell::new(vec),
             lock: Default::default(),
+            locks: UnsafeCell::new(IndexMap::with_capacity(vec.capacity())),
+            dirty: UnsafeCell::new(vec),
         }
     }
 
