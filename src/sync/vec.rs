@@ -6,10 +6,12 @@ use std::ops::{Deref, DerefMut, Index};
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use std::sync::Arc;
 use std::vec::IntoIter;
+use indexmap::IndexMap;
 
 pub struct SyncVec<V> {
     dirty: UnsafeCell<Vec<V>>,
     lock: ReentrantMutex<()>,
+    //locks: UnsafeCell<IndexMap<usize, ReentrantMutex<()>>>,
 }
 
 /// this is safety, dirty mutex ensure

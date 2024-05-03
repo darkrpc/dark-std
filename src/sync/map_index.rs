@@ -14,6 +14,7 @@ use std::sync::Arc;
 pub struct SyncIndexMap<K: Eq + Hash, V> {
     dirty: UnsafeCell<Map<K, V>>,
     lock: ReentrantMutex<()>,
+    locks: UnsafeCell<Map<K, ReentrantMutex<()>>>,
 }
 
 /// this is safety, dirty mutex ensure
@@ -45,6 +46,7 @@ where
         Self {
             dirty: UnsafeCell::new(Map::new()),
             lock: Default::default(),
+            locks: UnsafeCell::new(Map::new()),
         }
     }
 
@@ -52,6 +54,7 @@ where
         Self {
             dirty: UnsafeCell::new(Map::with_capacity(capacity)),
             lock: Default::default(),
+            locks: UnsafeCell::new(Map::default()),
         }
     }
 
@@ -59,6 +62,7 @@ where
         Self {
             dirty: UnsafeCell::new(map),
             lock: Default::default(),
+            locks: UnsafeCell::new(Map::default()),
         }
     }
 
@@ -157,18 +161,28 @@ where
     }
 
     #[inline]
-    pub fn get_mut<Q: ?Sized>(&self, k: &Q) -> Option<HashMapRefMut<'_, V>>
-    where
-        K: Borrow<Q>,
-        Q: Hash + Eq,
+    pub fn get_mut(&self, k: &K) -> Option<HashMapRefMut<'_, K, V>>
+        where
+            K: Hash + Eq + Clone,
     {
-        Some(HashMapRefMut {
-            _g: self.lock.lock(),
+        let get_mut_lock = self.lock.lock();
+        let m = unsafe { &mut *self.locks.get() };
+        if m.contains_key(k) == false {
+            let g = ReentrantMutex::new(());
+            m.insert(k.clone(), g);
+        }
+        let g = m.get(k).unwrap();
+        let v = HashMapRefMut {
+            k: unsafe { std::mem::transmute(&k) },
+            m: self,
+            _g: g.lock(),
             value: {
                 let m = unsafe { &mut *self.dirty.get() };
                 m.get_mut(k)?
             },
-        })
+        };
+        drop(get_mut_lock);
+        Some(v)
     }
 
     #[inline]
@@ -207,12 +221,21 @@ where
     }
 }
 
-pub struct HashMapRefMut<'a, V> {
+pub struct HashMapRefMut<'a, K: Eq + Hash, V> {
+    k: &'a K,
+    m: &'a SyncIndexMap<K, V>,
     _g: ReentrantMutexGuard<'a, ()>,
     value: &'a mut V,
 }
 
-impl<'a, V> Deref for HashMapRefMut<'_, V> {
+impl<'a, K: Eq + Hash, V> Drop for HashMapRefMut<'a, K, V> {
+    fn drop(&mut self) {
+        let m = unsafe { &mut *self.m.locks.get() };
+        _ = m.swap_remove(self.k);
+    }
+}
+
+impl<'a, K: Eq + Hash, V> Deref for HashMapRefMut<'_, K, V> {
     type Target = V;
 
     fn deref(&self) -> &Self::Target {
@@ -220,40 +243,40 @@ impl<'a, V> Deref for HashMapRefMut<'_, V> {
     }
 }
 
-impl<'a, V> DerefMut for HashMapRefMut<'_, V> {
+impl<'a, K: Eq + Hash, V> DerefMut for HashMapRefMut<'_, K, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.value
     }
 }
 
-impl<'a, V> Debug for HashMapRefMut<'_, V>
-where
-    V: Debug,
+impl<'a, K: Eq + Hash, V> Debug for HashMapRefMut<'_, K, V>
+    where
+        V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
     }
 }
 
-impl<'a, V> Display for HashMapRefMut<'_, V>
-where
-    V: Display,
+impl<'a, K: Eq + Hash, V> Display for HashMapRefMut<'_, K, V>
+    where
+        V: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
     }
 }
 
-impl<'a, V> PartialEq<Self> for HashMapRefMut<'_, V>
-where
-    V: Eq,
+impl<'a, K: Eq + Hash, V> PartialEq<Self> for HashMapRefMut<'_, K, V>
+    where
+        V: Eq,
 {
     fn eq(&self, other: &Self) -> bool {
         self.value.eq(&other.value)
     }
 }
 
-impl<'a, V> Eq for HashMapRefMut<'_, V> where V: Eq {}
+impl<'a, K: Eq + Hash, V> Eq for HashMapRefMut<'_, K, V> where V: Eq {}
 
 pub struct HashIterMut<'a, K, V> {
     _g: ReentrantMutexGuard<'a, ()>,
