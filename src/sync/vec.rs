@@ -2,6 +2,7 @@ use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::cell::UnsafeCell;
 use std::fmt::{Debug, Display, Formatter};
+
 use std::ops::{Deref, DerefMut, Index};
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use std::sync::Arc;
@@ -165,17 +166,30 @@ impl<V> SyncVec<V> {
 
     #[inline]
     pub fn get_mut(&self, index: usize) -> Option<VecRefMut<'_, V>> {
-        let m = unsafe { &mut *self.dirty.get() };
-        Some(VecRefMut {
-            _g: self.lock.lock(),
-            value: Some(m.get_mut(index)?),
-        })
+        let get_mut_lock = self.lock.lock();
+        let m = unsafe { &mut *self.locks.get() };
+        if m.contains_key(&index) == false {
+            let g = ReentrantMutex::new(());
+            m.insert(index, g);
+        }
+        let g = m.get(&index).unwrap();
+        let v = VecRefMut {
+            k: index,
+            m: self,
+            _g: g.lock(),
+            value: {
+                let m = unsafe { &mut *self.dirty.get() };
+                Some(m.get_mut(index)?)
+            },
+        };
+        drop(get_mut_lock);
+        Some(v)
     }
 
     #[inline]
     pub fn contains(&self, x: &V) -> bool
-    where
-        V: PartialEq,
+        where
+            V: PartialEq,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.contains(x)
@@ -210,8 +224,17 @@ impl<V> SyncVec<V> {
 }
 
 pub struct VecRefMut<'a, V> {
+    k: usize,
+    m: &'a SyncVec<V>,
     _g: ReentrantMutexGuard<'a, ()>,
     value: Option<&'a mut V>,
+}
+
+impl<'a, V> Drop for VecRefMut<'a, V> {
+    fn drop(&mut self) {
+        let m = unsafe { &mut *self.m.locks.get() };
+        _ = m.swap_remove(&self.k);
+    }
 }
 
 impl<'a, V> Deref for VecRefMut<'_, V> {
@@ -229,8 +252,8 @@ impl<'a, V> DerefMut for VecRefMut<'_, V> {
 }
 
 impl<'a, V> Debug for VecRefMut<'_, V>
-where
-    V: Debug,
+    where
+        V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
@@ -238,8 +261,8 @@ where
 }
 
 impl<'a, V> Display for VecRefMut<'_, V>
-where
-    V: Display,
+    where
+        V: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.value.as_ref().unwrap().fmt(f)
@@ -314,24 +337,24 @@ impl<V> IntoIterator for SyncVec<V> {
 }
 
 impl<V> Serialize for SyncVec<V>
-where
-    V: Serialize,
+    where
+        V: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
+        where
+            S: Serializer,
     {
         self.dirty_ref().serialize(serializer)
     }
 }
 
 impl<'de, V> serde::Deserialize<'de> for SyncVec<V>
-where
-    V: serde::Deserialize<'de>,
+    where
+        V: serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         let m = Vec::deserialize(deserializer)?;
         Ok(Self::from(m))
@@ -339,8 +362,8 @@ where
 }
 
 impl<V> Debug for SyncVec<V>
-where
-    V: Debug,
+    where
+        V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.dirty_ref().fmt(f)
@@ -348,8 +371,8 @@ where
 }
 
 impl<V> Display for SyncVec<V>
-where
-    V: Display,
+    where
+        V: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use std::fmt::Pointer;
