@@ -41,7 +41,7 @@ impl AtomicDuration {
     }
 
     #[inline]
-    pub fn into_inner(self) -> Option<Duration>{
+    pub fn into_inner(self) -> Option<Duration> {
         self.take()
     }
 }

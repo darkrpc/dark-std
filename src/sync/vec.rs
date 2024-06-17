@@ -2,14 +2,17 @@ use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::cell::UnsafeCell;
 use std::fmt::{Debug, Display, Formatter};
+
 use std::ops::{Deref, DerefMut, Index};
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use std::sync::Arc;
 use std::vec::IntoIter;
+use indexmap::IndexMap;
 
 pub struct SyncVec<V> {
     dirty: UnsafeCell<Vec<V>>,
     lock: ReentrantMutex<()>,
+    locks: UnsafeCell<IndexMap<usize, ReentrantMutex<()>>>,
 }
 
 /// this is safety, dirty mutex ensure
@@ -27,6 +30,7 @@ impl<V> SyncVec<V> {
         Self {
             dirty: UnsafeCell::new(Vec::new()),
             lock: Default::default(),
+            locks: UnsafeCell::new(IndexMap::default()),
         }
     }
 
@@ -34,13 +38,15 @@ impl<V> SyncVec<V> {
         Self {
             dirty: UnsafeCell::new(Vec::with_capacity(capacity)),
             lock: Default::default(),
+            locks: UnsafeCell::new(IndexMap::with_capacity(capacity)),
         }
     }
 
     pub fn with_vec(vec: Vec<V>) -> Self {
         Self {
-            dirty: UnsafeCell::new(vec),
             lock: Default::default(),
+            locks: UnsafeCell::new(IndexMap::with_capacity(vec.capacity())),
+            dirty: UnsafeCell::new(vec),
         }
     }
 
@@ -160,11 +166,24 @@ impl<V> SyncVec<V> {
 
     #[inline]
     pub fn get_mut(&self, index: usize) -> Option<VecRefMut<'_, V>> {
-        let m = unsafe { &mut *self.dirty.get() };
-        Some(VecRefMut {
-            _g: self.lock.lock(),
-            value: Some(m.get_mut(index)?),
-        })
+        let get_mut_lock = self.lock.lock();
+        let m = unsafe { &mut *self.locks.get() };
+        if m.contains_key(&index) == false {
+            let g = ReentrantMutex::new(());
+            m.insert(index, g);
+        }
+        let g = m.get(&index).unwrap();
+        let v = VecRefMut {
+            k: index,
+            m: self,
+            _g: g.lock(),
+            value: {
+                let m = unsafe { &mut *self.dirty.get() };
+                Some(m.get_mut(index)?)
+            },
+        };
+        drop(get_mut_lock);
+        Some(v)
     }
 
     #[inline]
@@ -205,8 +224,17 @@ impl<V> SyncVec<V> {
 }
 
 pub struct VecRefMut<'a, V> {
+    k: usize,
+    m: &'a SyncVec<V>,
     _g: ReentrantMutexGuard<'a, ()>,
     value: Option<&'a mut V>,
+}
+
+impl<'a, V> Drop for VecRefMut<'a, V> {
+    fn drop(&mut self) {
+        let m = unsafe { &mut *self.m.locks.get() };
+        _ = m.swap_remove(&self.k);
+    }
 }
 
 impl<'a, V> Deref for VecRefMut<'_, V> {
@@ -369,6 +397,12 @@ impl<V: PartialEq> PartialEq for SyncVec<V> {
 impl<V: Clone> Clone for SyncVec<V> {
     fn clone(&self) -> Self {
         SyncVec::from(self.dirty_ref().to_vec())
+    }
+}
+
+impl<V> Default for SyncVec<V> {
+    fn default() -> Self {
+        SyncVec::new()
     }
 }
 

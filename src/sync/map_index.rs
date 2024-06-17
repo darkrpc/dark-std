@@ -1,11 +1,10 @@
+use indexmap::map::{
+    IndexMap as Map, IntoIter as MapIntoIter, Iter as MapIter, IterMut as MapIterMut,
+};
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
-use indexmap::map::{
-    IntoIter as MapIntoIter, Iter as MapIter, IterMut as MapIterMut,
-    IndexMap as Map,
-};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
@@ -15,6 +14,7 @@ use std::sync::Arc;
 pub struct SyncIndexMap<K: Eq + Hash, V> {
     dirty: UnsafeCell<Map<K, V>>,
     lock: ReentrantMutex<()>,
+    locks: UnsafeCell<Map<K, ReentrantMutex<()>>>,
 }
 
 /// this is safety, dirty mutex ensure
@@ -35,8 +35,8 @@ where
 }
 
 impl<K, V> SyncIndexMap<K, V>
-    where
-        K: Eq + Hash,
+where
+    K: Eq + Hash,
 {
     pub fn new_arc() -> Arc<Self> {
         Arc::new(Self::new())
@@ -46,6 +46,7 @@ impl<K, V> SyncIndexMap<K, V>
         Self {
             dirty: UnsafeCell::new(Map::new()),
             lock: Default::default(),
+            locks: UnsafeCell::new(Map::new()),
         }
     }
 
@@ -53,6 +54,7 @@ impl<K, V> SyncIndexMap<K, V>
         Self {
             dirty: UnsafeCell::new(Map::with_capacity(capacity)),
             lock: Default::default(),
+            locks: UnsafeCell::new(Map::with_capacity(capacity)),
         }
     }
 
@@ -60,6 +62,7 @@ impl<K, V> SyncIndexMap<K, V>
         Self {
             dirty: UnsafeCell::new(map),
             lock: Default::default(),
+            locks: UnsafeCell::new(Map::default()),
         }
     }
 
@@ -122,8 +125,8 @@ impl<K, V> SyncIndexMap<K, V>
     }
 
     pub fn from(map: Map<K, V>) -> Self
-        where
-            K: Eq + Hash,
+    where
+        K: Eq + Hash,
     {
         let s = Self::with_map(map);
         s
@@ -150,32 +153,42 @@ impl<K, V> SyncIndexMap<K, V>
     /// ```
     #[inline]
     pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
-        where
-            K: Borrow<Q>,
-            Q: Hash + Eq,
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
     {
         unsafe { (&*self.dirty.get()).get(k) }
     }
 
     #[inline]
-    pub fn get_mut<Q: ?Sized>(&self, k: &Q) -> Option<HashMapRefMut<'_, V>>
+    pub fn get_mut(&self, k: &K) -> Option<HashMapRefMut<'_, K, V>>
         where
-            K: Borrow<Q>,
-            Q: Hash + Eq,
+            K: Hash + Eq + Clone,
     {
-        Some(HashMapRefMut {
-            _g: self.lock.lock(),
+        let get_mut_lock = self.lock.lock();
+        let m = unsafe { &mut *self.locks.get() };
+        if m.contains_key(k) == false {
+            let g = ReentrantMutex::new(());
+            m.insert(k.clone(), g);
+        }
+        let g = m.get(k).unwrap();
+        let v = HashMapRefMut {
+            k: unsafe { std::mem::transmute(&k) },
+            m: self,
+            _g: g.lock(),
             value: {
                 let m = unsafe { &mut *self.dirty.get() };
                 m.get_mut(k)?
             },
-        })
+        };
+        drop(get_mut_lock);
+        Some(v)
     }
 
     #[inline]
     pub fn contains_key(&self, x: &K) -> bool
-        where
-            K: PartialEq,
+    where
+        K: PartialEq,
     {
         let m = unsafe { &mut *self.dirty.get() };
         m.contains_key(x)
@@ -208,12 +221,21 @@ impl<K, V> SyncIndexMap<K, V>
     }
 }
 
-pub struct HashMapRefMut<'a, V> {
+pub struct HashMapRefMut<'a, K: Eq + Hash, V> {
+    k: &'a K,
+    m: &'a SyncIndexMap<K, V>,
     _g: ReentrantMutexGuard<'a, ()>,
     value: &'a mut V,
 }
 
-impl<'a, V> Deref for HashMapRefMut<'_, V> {
+impl<'a, K: Eq + Hash, V> Drop for HashMapRefMut<'a, K, V> {
+    fn drop(&mut self) {
+        let m = unsafe { &mut *self.m.locks.get() };
+        _ = m.swap_remove(self.k);
+    }
+}
+
+impl<'a, K: Eq + Hash, V> Deref for HashMapRefMut<'_, K, V> {
     type Target = V;
 
     fn deref(&self) -> &Self::Target {
@@ -221,13 +243,13 @@ impl<'a, V> Deref for HashMapRefMut<'_, V> {
     }
 }
 
-impl<'a, V> DerefMut for HashMapRefMut<'_, V> {
+impl<'a, K: Eq + Hash, V> DerefMut for HashMapRefMut<'_, K, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.value
     }
 }
 
-impl<'a, V> Debug for HashMapRefMut<'_, V>
+impl<'a, K: Eq + Hash, V> Debug for HashMapRefMut<'_, K, V>
     where
         V: Debug,
 {
@@ -236,7 +258,7 @@ impl<'a, V> Debug for HashMapRefMut<'_, V>
     }
 }
 
-impl<'a, V> Display for HashMapRefMut<'_, V>
+impl<'a, K: Eq + Hash, V> Display for HashMapRefMut<'_, K, V>
     where
         V: Display,
 {
@@ -245,7 +267,7 @@ impl<'a, V> Display for HashMapRefMut<'_, V>
     }
 }
 
-impl<'a, V> PartialEq<Self> for HashMapRefMut<'_, V>
+impl<'a, K: Eq + Hash, V> PartialEq<Self> for HashMapRefMut<'_, K, V>
     where
         V: Eq,
 {
@@ -254,7 +276,7 @@ impl<'a, V> PartialEq<Self> for HashMapRefMut<'_, V>
     }
 }
 
-impl<'a, V> Eq for HashMapRefMut<'_, V> where V: Eq {}
+impl<'a, K: Eq + Hash, V> Eq for HashMapRefMut<'_, K, V> where V: Eq {}
 
 pub struct HashIterMut<'a, K, V> {
     _g: ReentrantMutexGuard<'a, ()>,
@@ -284,8 +306,8 @@ impl<'a, K, V> Iterator for HashIterMut<'a, K, V> {
 }
 
 impl<'a, K, V> IntoIterator for &'a SyncIndexMap<K, V>
-    where
-        K: Eq + Hash,
+where
+    K: Eq + Hash,
 {
     type Item = (&'a K, &'a V);
     type IntoIter = MapIter<'a, K, V>;
@@ -296,8 +318,8 @@ impl<'a, K, V> IntoIterator for &'a SyncIndexMap<K, V>
 }
 
 impl<K, V> IntoIterator for SyncIndexMap<K, V>
-    where
-        K: Eq + Hash,
+where
+    K: Eq + Hash,
 {
     type Item = (K, V);
     type IntoIter = MapIntoIter<K, V>;
@@ -314,26 +336,26 @@ impl<K: Eq + Hash, V> From<Map<K, V>> for SyncIndexMap<K, V> {
 }
 
 impl<K, V> serde::Serialize for SyncIndexMap<K, V>
-    where
-        K: Eq + Hash + Serialize,
-        V: Serialize,
+where
+    K: Eq + Hash + Serialize,
+    V: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         self.dirty_ref().serialize(serializer)
     }
 }
 
 impl<'de, K, V> serde::Deserialize<'de> for SyncIndexMap<K, V>
-    where
-        K: Eq + Hash + serde::Deserialize<'de>,
-        V: serde::Deserialize<'de>,
+where
+    K: Eq + Hash + serde::Deserialize<'de>,
+    V: serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let m = Map::deserialize(deserializer)?;
         Ok(Self::from(m))
@@ -341,9 +363,9 @@ impl<'de, K, V> serde::Deserialize<'de> for SyncIndexMap<K, V>
 }
 
 impl<K, V> Debug for SyncIndexMap<K, V>
-    where
-        K: Eq + Hash + Debug,
-        V: Debug,
+where
+    K: Eq + Hash + Debug,
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.dirty_ref().fmt(f)
@@ -351,9 +373,9 @@ impl<K, V> Debug for SyncIndexMap<K, V>
 }
 
 impl<K, V> Display for SyncIndexMap<K, V>
-    where
-        K: Eq + Hash + Display,
-        V: Display,
+where
+    K: Eq + Hash + Display,
+    V: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use std::fmt::Pointer;
@@ -361,10 +383,15 @@ impl<K, V> Display for SyncIndexMap<K, V>
     }
 }
 
-
 impl<K: Clone + Eq + Hash, V: Clone> Clone for SyncIndexMap<K, V> {
     fn clone(&self) -> Self {
         let c = (*self.dirty_ref()).clone();
         SyncIndexMap::from(c)
+    }
+}
+
+impl<K: Eq + Hash, V> Default for SyncIndexMap<K, V> {
+    fn default() -> Self {
+        SyncIndexMap::new()
     }
 }
