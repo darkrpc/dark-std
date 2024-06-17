@@ -71,6 +71,9 @@ impl WaitGroup {
     }
 
     pub async fn wait_async(&self) {
+        if self.total.load(Ordering::Relaxed)==0{
+            return;
+        }
         let mut total;
         let mut current = 0;
         loop {
@@ -90,6 +93,9 @@ impl WaitGroup {
     }
 
     pub fn wait(&self) {
+        if self.total.load(Ordering::Relaxed)==0{
+            return;
+        }
         let mut total;
         let mut current = 0;
         loop {
