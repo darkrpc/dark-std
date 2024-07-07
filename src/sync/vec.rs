@@ -384,7 +384,7 @@ impl<V> Index<usize> for SyncVec<V> {
     type Output = V;
 
     fn index(&self, index: usize) -> &Self::Output {
-        self.get_uncheck(index)
+        self.get(index).expect("Out of bounds access")
     }
 }
 
