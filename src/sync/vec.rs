@@ -160,7 +160,7 @@ impl<V> SyncVec<V> {
     }
 
     #[inline]
-    pub fn get_uncheck(&self, index: usize) -> &V {
+    pub unsafe fn get_uncheck(&self, index: usize) -> &V {
         unsafe { (&*self.dirty.get()).get_unchecked(index) }
     }
 
