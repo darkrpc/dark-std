@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["zhuxiujia@qq.com"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/darkrpc/dark-std.git"
-description = "dark-std is an Implementation of asynchronous containers build on tokio. It uses a read-write separation design borrowed from Golang"
+description = "Thread-safe containers with a read-write separation design borrowed from Golang: reads avoid the container write-lock and never contend with each other; writes are serialized and wait for active readers. Plus async/blocking utilities"
 readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
