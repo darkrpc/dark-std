@@ -32,9 +32,9 @@ pub fn test_insert2() {
     m.insert("/js".to_string(), "2".to_string());
     m.insert("/fn".to_string(), "3".to_string());
 
-    assert_eq!(&"1".to_string(), m.get("/").unwrap());
-    assert_eq!(&"2".to_string(), m.get("/js").unwrap());
-    assert_eq!(&"3".to_string(), m.get("/fn").unwrap());
+    assert_eq!(&"1".to_string(), &*m.get("/").unwrap());
+    assert_eq!(&"2".to_string(), &*m.get("/js").unwrap());
+    assert_eq!(&"3".to_string(), &*m.get("/fn").unwrap());
 }
 
 // #[test]
@@ -92,7 +92,7 @@ pub fn test_get() {
     let m = SyncIndexMap::<i32, i32>::new();
     m.insert(1, 2);
     let g = m.get(&1).unwrap();
-    assert_eq!(&2, g);
+    assert_eq!(&2, &*g);
 }
 
 #[test]
@@ -101,8 +101,9 @@ pub fn test_get_mut() {
     m.insert(1, 2);
     let mut r = m.get_mut(&1).unwrap();
     *r = 0;
+    drop(r); // write guard holds the lock; drop it before reading
     let g = m.get(&1).unwrap();
-    assert_eq!(&0, g);
+    assert_eq!(&0, &*g);
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -122,13 +123,14 @@ pub fn test_remove() {
     let m = SyncIndexMap::<i32, A>::new();
     m.insert(1, a);
     let g = m.get(&1).unwrap();
+    assert_eq!(&A { inner: 0 }, &*g);
+    drop(g); // read guard holds the lock; drop it before writing
     let rm = m.remove(&1).unwrap();
     println!("rm:{:?}", rm);
     drop(rm);
     assert_eq!(true, m.is_empty());
     assert_eq!(true, m.dirty_ref().is_empty());
     assert_eq!(None, m.get(&1));
-    assert_eq!(&A { inner: 0 }, g);
 }
 
 #[test]

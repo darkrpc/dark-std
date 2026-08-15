@@ -1,50 +1,185 @@
-use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
+use parking_lot::Mutex;
 use serde::{Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
-use std::collections::{btree_map::IntoIter as MapIntoIter, btree_map::Iter as MapIter, BTreeMap};
+use std::collections::{
+    btree_map::IntoIter as MapIntoIter, btree_map::Iter as MapIter,
+    btree_map::IterMut as MapIterMut, BTreeMap,
+};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
+use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-/// this sync map used to many reader,writer less.space-for-time strategy
-pub struct SyncBtreeMap<K: Eq + Hash, V> {
-    locks: UnsafeCell<BTreeMap<K, ReentrantMutex<()>>>,
-    dirty: UnsafeCell<BTreeMap<K, V>>,
-    lock: ReentrantMutex<()>,
+use super::{ReadGuard, ReadMapGuard, WriteGuard, WriteLock};
+
+/// Read guard returned by [`SyncBtreeMap::get`].
+pub type BtreeMapGet<'a, V> = ReadGuard<'a, V>;
+
+/// Write guard returned by [`SyncBtreeMap::get_mut`].
+pub struct BtreeMapRefMut<'a, K, V> {
+    inner: WriteGuard<'a, V>,
+    _k: PhantomData<&'a K>,
 }
 
-/// this is safety, dirty mutex ensure
-unsafe impl<K: Eq + Hash, V> Send for SyncBtreeMap<K, V> {}
-
-/// this is safety, dirty mutex ensure
-unsafe impl<K: Eq + Hash, V> Sync for SyncBtreeMap<K, V> {}
-
-impl<K, V> std::ops::Index<&K> for SyncBtreeMap<K, V>
-where
-    K: Eq + Hash + Ord,
-{
-    type Output = V;
-
-    fn index(&self, index: &K) -> &Self::Output {
-        unsafe { &(&*self.dirty.get())[index] }
+impl<'a, K, V> BtreeMapRefMut<'a, K, V> {
+    #[inline]
+    pub(crate) fn new(inner: WriteGuard<'a, V>) -> Self {
+        BtreeMapRefMut {
+            inner,
+            _k: PhantomData,
+        }
     }
 }
 
-impl<K: Eq + Hash, V> SyncBtreeMap<K, V>
+impl<'a, K, V> Deref for BtreeMapRefMut<'a, K, V> {
+    type Target = V;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<'a, K, V> DerefMut for BtreeMapRefMut<'a, K, V> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl<'a, K, V: Debug> Debug for BtreeMapRefMut<'a, K, V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&*self.inner, f)
+    }
+}
+
+impl<'a, K, V: Display> Display for BtreeMapRefMut<'a, K, V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&*self.inner, f)
+    }
+}
+
+impl<'a, K, V: PartialEq> PartialEq for BtreeMapRefMut<'a, K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        *self.inner == *other.inner
+    }
+}
+
+impl<'a, K, V: Eq> Eq for BtreeMapRefMut<'a, K, V> {}
+
+/// Read iterator returned by [`SyncBtreeMap::iter`].
+pub struct BtreeMapIter<'a, K, V> {
+    count: &'a AtomicUsize,
+    inner: MapIter<'a, K, V>,
+    _not_send: PhantomData<*const ()>,
+}
+
+impl<'a, K, V> Drop for BtreeMapIter<'a, K, V> {
+    fn drop(&mut self) {
+        self.count.fetch_sub(1, Ordering::Release);
+    }
+}
+
+impl<'a, K, V> Iterator for BtreeMapIter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+}
+
+/// Write iterator returned by [`SyncBtreeMap::iter_mut`].
+pub struct BtreeMapIterMut<'a, K, V> {
+    _w: WriteLock<'a>,
+    inner: MapIterMut<'a, K, V>,
+}
+
+impl<'a, K, V> Iterator for BtreeMapIterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+}
+
+/// this sync map used to many reader,writer less.space-for-time strategy
+///
+/// Reads are lock-free: `get`/`iter`/`dirty_ref`/`len`/`contains_key` only
+/// register a reader slot with an atomic counter and then read the map without
+/// any lock (readers never block each other and never touch a lock word).
+/// Writes take a mutex, raise a `writing` flag and wait until all in-flight
+/// readers are gone before mutating the map in place — O(log n), no
+/// whole-container copy and no `Clone` requirement on `K`/`V`.
+///
+/// # Deadlock note
+/// A read guard makes writers wait until it is dropped. Do not call a write
+/// method while a read/write guard is alive in the same scope: drop the guard
+/// first (e.g. `drop(g)` before `insert`/`remove`/`get_mut`), otherwise the
+/// writer waits for its own guard and deadlocks.
+pub struct SyncBtreeMap<K: Eq + Hash, V> {
+    dirty: UnsafeCell<BTreeMap<K, V>>,
+    write: Mutex<()>,
+    id: usize,
+    writing: AtomicBool,
+    registry: Mutex<Vec<std::boxed::Box<AtomicUsize>>>,
+}
+
+// SAFETY: all writers hold `write` and wait for `readers` to drain before
+// touching `dirty`; readers either see a consistent snapshot or retry while a
+// writer is active, so concurrent access to `dirty` is race-free.
+unsafe impl<K: Eq + Hash, V: Send> Send for SyncBtreeMap<K, V> {}
+unsafe impl<K: Eq + Hash, V: Sync> Sync for SyncBtreeMap<K, V> {}
+
+impl<K, V> SyncBtreeMap<K, V>
 where
     K: Eq + Hash,
 {
+    #[inline]
+    fn begin_read(&self) -> &AtomicUsize {
+        // The counter lives in thread-local storage: concurrent readers only
+        // touch their own cache line and never contend with each other. SeqCst
+        // closes the store-buffering window with the writer's all-zero scan.
+        let count = super::reader_count_for(self.id, &self.registry);
+        loop {
+            count.fetch_add(1, Ordering::SeqCst);
+            if !self.writing.load(Ordering::SeqCst) {
+                return count;
+            }
+            count.fetch_sub(1, Ordering::SeqCst);
+            std::thread::yield_now();
+        }
+    }
+
+    #[inline]
+    fn begin_write(&self) -> WriteLock<'_> {
+        let lock = self.write.lock();
+        self.writing.store(true, Ordering::SeqCst);
+        loop {
+            let registry = self.registry.lock();
+            let all_zero = registry.iter().all(|c| c.load(Ordering::SeqCst) == 0);
+            if all_zero {
+                break;
+            }
+            drop(registry);
+            std::thread::yield_now();
+        }
+        WriteLock::new(lock, &self.writing)
+    }
+
     pub fn new_arc() -> Arc<Self> {
         Arc::new(Self::new())
     }
 
     pub fn new() -> Self {
         Self {
-            locks: UnsafeCell::new(BTreeMap::new()),
             dirty: UnsafeCell::new(BTreeMap::new()),
-            lock: Default::default(),
+            write: Mutex::new(()),
+            id: super::CONTAINER_ID.fetch_add(1, Ordering::Relaxed),
+            writing: AtomicBool::new(false),
+            registry: Mutex::new(Vec::new()),
         }
     }
 
@@ -52,11 +187,16 @@ where
         Self::new()
     }
 
-    pub fn with_map(map: BTreeMap<K, V>) -> Self {
+    pub fn with_map(map: BTreeMap<K, V>) -> Self
+    where
+        K: Ord,
+    {
         Self {
-            locks: UnsafeCell::new(BTreeMap::new()),
             dirty: UnsafeCell::new(map),
-            lock: Default::default(),
+            write: Mutex::new(()),
+            id: super::CONTAINER_ID.fetch_add(1, Ordering::Relaxed),
+            writing: AtomicBool::new(false),
+            registry: Mutex::new(Vec::new()),
         }
     }
 
@@ -64,64 +204,53 @@ where
     where
         K: Ord,
     {
-        let g = self.lock.lock();
-        let m = unsafe { &mut *self.dirty.get() };
-        let r = m.insert(k, v);
-        drop(g);
-        r
+        let _w = self.begin_write();
+        unsafe { &mut *self.dirty.get() }.insert(k, v)
     }
 
     pub fn insert_mut(&mut self, k: K, v: V) -> Option<V>
     where
         K: Ord,
     {
-        let m = unsafe { &mut *self.dirty.get() };
-        m.insert(k, v)
+        unsafe { &mut *self.dirty.get() }.insert(k, v)
     }
 
     pub fn remove(&self, k: &K) -> Option<V>
     where
         K: Ord,
     {
-        let g = self.lock.lock();
-        let m = unsafe { &mut *self.dirty.get() };
-        let r = m.remove(k);
-        drop(g);
-        r
+        let _w = self.begin_write();
+        unsafe { &mut *self.dirty.get() }.remove(k)
     }
 
     pub fn remove_mut(&mut self, k: &K) -> Option<V>
     where
         K: Ord,
     {
-        let m = unsafe { &mut *self.dirty.get() };
-        m.remove(k)
+        unsafe { &mut *self.dirty.get() }.remove(k)
     }
 
     pub fn len(&self) -> usize {
-        unsafe { (&*self.dirty.get()).len() }
+        let count = self.begin_read();
+        let n = unsafe { &*self.dirty.get() }.len();
+        count.fetch_sub(1, Ordering::Release);
+        n
     }
 
     pub fn is_empty(&self) -> bool {
-        unsafe { (&*self.dirty.get()).is_empty() }
+        let count = self.begin_read();
+        let b = unsafe { &*self.dirty.get() }.is_empty();
+        count.fetch_sub(1, Ordering::Release);
+        b
     }
 
-    pub fn clear(&self)
-    where
-        K: Eq + Hash,
-    {
-        let g = self.lock.lock();
-        let m = unsafe { &mut *self.dirty.get() };
-        m.clear();
-        drop(g);
+    pub fn clear(&self) {
+        let _w = self.begin_write();
+        unsafe { &mut *self.dirty.get() }.clear();
     }
 
-    pub fn clear_mut(&mut self)
-    where
-        K: Eq + Hash,
-    {
-        let m = unsafe { &mut *self.dirty.get() };
-        m.clear();
+    pub fn clear_mut(&mut self) {
+        unsafe { &mut *self.dirty.get() }.clear();
     }
 
     pub fn shrink_to_fit(&self) {}
@@ -130,21 +259,19 @@ where
 
     pub fn from(map: BTreeMap<K, V>) -> Self
     where
-        K: Eq + Hash,
+        K: Eq + Hash + Ord,
     {
-        let s = Self::with_map(map);
-        s
+        Self::with_map(map)
     }
 
-    /// Returns a reference to the value corresponding to the key.
+    /// Returns a read-guarded reference to the value corresponding to the key.
     ///
-    /// The key may be any borrowed form of the map's key type, but
-    /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
-    /// the key type.
+    /// The key may be any borrowed form of the map's key type.
     ///
-    /// Since reading a map is unlocked, it is very fast
+    /// The read is lock-free: it only registers a reader slot, so concurrent
+    /// reads never block each other and never take a lock. Writers wait for
+    /// the returned guard to be dropped before mutating the map.
     ///
-    /// test bench_sync_hash_map_read   ... bench:           8 ns/iter (+/- 0)
     /// # Examples
     ///
     /// ```
@@ -156,165 +283,94 @@ where
     /// assert_eq!(map.get(&2).is_none(), true);
     /// ```
     #[inline]
-    pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
+    pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<BtreeMapGet<'_, V>>
     where
         K: Borrow<Q> + Ord,
-        Q: Hash + Eq + Ord,
+        Q: Ord,
     {
-        unsafe { (&*self.dirty.get()).get(k) }
+        let count = self.begin_read();
+        let m = unsafe { &*self.dirty.get() };
+        match m.get(k) {
+            Some(v) => Some(ReadGuard::new(count, v)),
+            None => {
+                count.fetch_sub(1, Ordering::Release);
+                None
+            }
+        }
     }
 
+    /// Returns a write-guarded mutable reference to the value of the key.
+    ///
+    /// The guard holds the writer lock (writers are mutually exclusive and
+    /// wait for in-flight readers) until it is dropped, so the mutable
+    /// reference can never race with concurrent readers or writers. Drop it
+    /// before calling another method from the same scope.
     #[inline]
     pub fn get_mut(&self, k: &K) -> Option<BtreeMapRefMut<'_, K, V>>
     where
-        K: Hash + Eq + Clone + Ord,
+        K: Ord,
     {
-        let get_mut_lock = self.lock.lock();
-        let m = unsafe { &mut *self.locks.get() };
-        if m.contains_key(k) == false {
-            let g = ReentrantMutex::new(());
-            m.insert(k.clone(), g);
-        }
-        let g = m.get(k).unwrap();
+        let w = self.begin_write();
         let m = unsafe { &mut *self.dirty.get() };
-        let v = BtreeMapRefMut {
-            k: unsafe { std::mem::transmute(&k) },
-            m: self,
-            _g: g.lock(),
-            value: m.get_mut(k)?,
-        };
-        drop(get_mut_lock);
-        Some(v)
+        match m.get_mut(k) {
+            Some(v) => Some(BtreeMapRefMut::new(WriteGuard::new(w, v))),
+            None => None,
+        }
     }
 
     #[inline]
-    pub fn contains_key(&self, x: &K) -> bool
+    pub fn contains_key<Q: ?Sized>(&self, k: &Q) -> bool
     where
-        K: PartialEq + Ord,
+        K: Borrow<Q> + Ord,
+        Q: Ord,
     {
-        let m = unsafe { &mut *self.dirty.get() };
-        m.contains_key(x)
+        let count = self.begin_read();
+        let b = unsafe { &*self.dirty.get() }.contains_key(k);
+        count.fetch_sub(1, Ordering::Release);
+        b
     }
 
-    pub fn iter(&self) -> MapIter<'_, K, V> {
-        unsafe { (&*self.dirty.get()).iter() }
+    pub fn iter(&self) -> BtreeMapIter<'_, K, V> {
+        let count = self.begin_read();
+        let m = unsafe { &*self.dirty.get() };
+        BtreeMapIter {
+            count,
+            inner: m.iter(),
+            _not_send: PhantomData,
+        }
     }
 
-    pub fn iter_mut(&self) -> BtreeIterMut<'_, K, V> {
+    pub fn iter_mut(&self) -> BtreeMapIterMut<'_, K, V> {
+        let w = self.begin_write();
         let m = unsafe { &mut *self.dirty.get() };
-        return BtreeIterMut {
-            _g: self.lock.lock(),
+        BtreeMapIterMut {
+            _w: w,
             inner: m.iter_mut(),
-        };
+        }
     }
 
-    pub fn into_iter(self) -> MapIntoIter<K, V> {
-        self.dirty.into_inner().into_iter()
+    pub fn into_iter(self) -> MapIntoIter<K, V>
+    where
+        K: Ord,
+    {
+        self.into_inner().into_iter()
     }
 
-    pub fn dirty_ref(&self) -> &BTreeMap<K, V> {
-        unsafe { &*self.dirty.get() }
+    pub fn dirty_ref(&self) -> ReadMapGuard<'_, BTreeMap<K, V>> {
+        let count = self.begin_read();
+        let m = unsafe { &*self.dirty.get() };
+        ReadMapGuard::new(count, m)
     }
 
-    pub fn into_inner(self) -> BTreeMap<K, V> {
+    pub fn into_inner(self) -> BTreeMap<K, V>
+    where
+        K: Ord,
+    {
         self.dirty.into_inner()
     }
 }
 
-pub struct BtreeMapRefMut<'a, K: Eq + Hash + Ord, V> {
-    k: &'a K,
-    m: &'a SyncBtreeMap<K, V>,
-    _g: ReentrantMutexGuard<'a, ()>,
-    value: &'a mut V,
-}
-
-impl<'a, K: Eq + Hash + Ord, V> Drop for BtreeMapRefMut<'a, K, V> {
-    fn drop(&mut self) {
-        let m = unsafe { &mut *self.m.locks.get() };
-        _ = m.remove(self.k);
-    }
-}
-
-impl<'a, K: Eq + Hash + Ord, V> Deref for BtreeMapRefMut<'_, K, V> {
-    type Target = V;
-
-    fn deref(&self) -> &Self::Target {
-        self.value
-    }
-}
-
-impl<'a, K: Eq + Hash + Ord, V> DerefMut for BtreeMapRefMut<'_, K, V> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.value
-    }
-}
-
-impl<'a, K: Eq + Hash + Ord, V> Debug for BtreeMapRefMut<'_, K, V>
-where
-    V: Debug,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.value.fmt(f)
-    }
-}
-
-impl<'a, K: Eq + Hash + Ord, V> Display for BtreeMapRefMut<'_, K, V>
-where
-    V: Display,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.value.fmt(f)
-    }
-}
-
-impl<'a, K: Eq + Hash + Ord, V> PartialEq<Self> for BtreeMapRefMut<'_, K, V>
-where
-    V: Eq,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.value.eq(&other.value)
-    }
-}
-
-impl<'a, K: Eq + Hash + Ord, V> Eq for BtreeMapRefMut<'_, K, V> where V: Eq {}
-
-pub struct BtreeIterMut<'a, K, V> {
-    _g: ReentrantMutexGuard<'a, ()>,
-    inner: std::collections::btree_map::IterMut<'a, K, V>,
-}
-
-impl<'a, K, V> Deref for BtreeIterMut<'a, K, V> {
-    type Target = std::collections::btree_map::IterMut<'a, K, V>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<'a, K, V> DerefMut for BtreeIterMut<'a, K, V> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-impl<'a, K, V> Iterator for BtreeIterMut<'a, K, V> {
-    type Item = (&'a K, &'a mut V);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
-    }
-}
-
-impl<'a, K: Eq + Hash, V> IntoIterator for &'a SyncBtreeMap<K, V> {
-    type Item = (&'a K, &'a V);
-    type IntoIter = MapIter<'a, K, V>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl<K: Eq + Hash, V> IntoIterator for SyncBtreeMap<K, V> {
+impl<K: Eq + Hash + Ord, V> IntoIterator for SyncBtreeMap<K, V> {
     type Item = (K, V);
     type IntoIter = MapIntoIter<K, V>;
 
@@ -323,13 +379,13 @@ impl<K: Eq + Hash, V> IntoIterator for SyncBtreeMap<K, V> {
     }
 }
 
-impl<K: Eq + Hash, V> From<BTreeMap<K, V>> for SyncBtreeMap<K, V> {
+impl<K: Eq + Hash + Ord, V> From<BTreeMap<K, V>> for SyncBtreeMap<K, V> {
     fn from(arg: BTreeMap<K, V>) -> Self {
         Self::from(arg)
     }
 }
 
-impl<K: Eq + Hash, V> serde::Serialize for SyncBtreeMap<K, V>
+impl<K, V> serde::Serialize for SyncBtreeMap<K, V>
 where
     K: Eq + Hash + Serialize + Ord,
     V: Serialize,
@@ -356,43 +412,27 @@ where
     }
 }
 
-impl<K: Eq + Hash, V> Debug for SyncBtreeMap<K, V>
+impl<K, V> Debug for SyncBtreeMap<K, V>
 where
     K: Eq + Hash + Debug,
     V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.dirty_ref().fmt(f)
+        Debug::fmt(&*self.dirty_ref(), f)
     }
 }
 
-impl<K: Eq + Hash, V> Display for SyncBtreeMap<K, V>
+impl<K, V> Display for SyncBtreeMap<K, V>
 where
-    K: Eq + Hash + Display,
-    V: Display,
+    K: Eq + Hash + Debug,
+    V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        use std::fmt::Pointer;
-        self.dirty_ref().fmt(f)
+        Debug::fmt(&*self.dirty_ref(), f)
     }
 }
 
-pub struct BtreeIter<'a, K, V> {
-    inner: MapIter<'a, K, *const V>,
-}
-
-impl<'a, K, V> Iterator for BtreeIter<'a, K, V> {
-    type Item = (&'a K, &'a V);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.inner.next() {
-            None => None,
-            Some((k, v)) => Some((k, unsafe { v.as_ref().unwrap() })),
-        }
-    }
-}
-
-impl<K: Clone + Eq + Hash, V: Clone> Clone for SyncBtreeMap<K, V> {
+impl<K: Clone + Eq + Hash + Ord, V: Clone> Clone for SyncBtreeMap<K, V> {
     fn clone(&self) -> Self {
         let c = (*self.dirty_ref()).clone();
         SyncBtreeMap::from(c)

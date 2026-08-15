@@ -32,9 +32,9 @@ pub fn test_push2() {
     m.push("2".to_string());
     m.push("3".to_string());
 
-    assert_eq!(&"1".to_string(), m.get(0).unwrap());
-    assert_eq!(&"2".to_string(), m.get(1).unwrap());
-    assert_eq!(&"3".to_string(), m.get(2).unwrap());
+    assert_eq!(&"1".to_string(), &*m.get(0).unwrap());
+    assert_eq!(&"2".to_string(), &*m.get(1).unwrap());
+    assert_eq!(&"3".to_string(), &*m.get(2).unwrap());
 }
 
 #[test]
@@ -42,7 +42,7 @@ pub fn test_get() {
     let m = SyncVec::<i32>::new();
     m.push(2);
     let g = m.get(0).unwrap();
-    assert_eq!(&2, g);
+    assert_eq!(&2, &*g);
 }
 
 #[test]
@@ -52,8 +52,9 @@ pub fn test_get_mut() {
     let mut m0 = m.get_mut(0).unwrap();
     *m0 = 1;
     println!("{}", *m0);
+    drop(m0); // write guard holds the lock; drop it before reading
     let g = m.get(0).unwrap();
-    assert_eq!(&1, g);
+    assert_eq!(&1, &*g);
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -73,13 +74,14 @@ pub fn test_remove() {
     let m = SyncVec::<A>::new();
     m.push(a);
     let g = m.get(0).unwrap();
+    assert_eq!(&A { inner: 0 }, &*g);
+    drop(g); // read guard holds the lock; drop it before writing
     let rm = m.remove(0).unwrap();
     println!("rm:{:?}", rm);
     drop(rm);
     assert_eq!(true, m.is_empty());
     assert_eq!(true, m.dirty_ref().is_empty());
     assert_eq!(None, m.get(0));
-    assert_eq!(&A { inner: 0 }, g);
 }
 
 #[test]
@@ -140,5 +142,5 @@ pub fn test_macro2() {
 #[test]
 pub fn test_macro3() {
     let v = sync_vec![1;2];
-    assert_eq!(v.dirty_ref(), &vec![1; 2]);
+    assert_eq!(&*v.dirty_ref(), &vec![1; 2]);
 }

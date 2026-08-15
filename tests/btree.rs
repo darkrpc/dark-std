@@ -22,9 +22,9 @@ pub fn test_insert2() {
     m.insert("/js".to_string(), "2".to_string());
     m.insert("/fn".to_string(), "3".to_string());
 
-    assert_eq!(&"1".to_string(), m.get("/").unwrap());
-    assert_eq!(&"2".to_string(), m.get("/js").unwrap());
-    assert_eq!(&"3".to_string(), m.get("/fn").unwrap());
+    assert_eq!(&"1".to_string(), &*m.get("/").unwrap());
+    assert_eq!(&"2".to_string(), &*m.get("/js").unwrap());
+    assert_eq!(&"3".to_string(), &*m.get("/fn").unwrap());
 }
 
 // #[test]
@@ -64,8 +64,9 @@ pub fn test_get_mut() {
     m.insert(1, 2);
     let mut r = m.get_mut(&1).unwrap();
     *r = 0;
+    drop(r); // write guard holds the lock; drop it before reading
     let g = m.get(&1).unwrap();
-    assert_eq!(&0, g);
+    assert_eq!(&0, &*g);
 }
 
 #[test]
@@ -95,6 +96,8 @@ pub fn test_get_mut_not_eq_key() {
     m.insert(2, 2);
 
     let v1 = m.get_mut(&1).unwrap();
+    assert_eq!(*v1, 1);
+    drop(v1); // a write guard is exclusive; drop it before taking another
     let v2 = m.get_mut(&2).unwrap();
-    assert_eq!(*v1 + 1, *v2);
+    assert_eq!(*v2, 2);
 }
