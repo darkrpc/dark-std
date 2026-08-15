@@ -9,7 +9,7 @@
 use dark_std::sync::{SyncBtreeMap, SyncHashMap, SyncIndexMap, SyncVec};
 
 #[test]
-fn SyncBtreeMap_race() {
+fn sync_btree_map_race() {
     let map: SyncBtreeMap<bool, bool> = SyncBtreeMap::new();
     map.insert(true, true);
     std::thread::scope(|s| {
@@ -21,7 +21,7 @@ fn SyncBtreeMap_race() {
 }
 
 #[test]
-fn SyncHashMap_race() {
+fn sync_hash_map_race() {
     let map: SyncHashMap<bool, bool> = SyncHashMap::new();
     std::thread::scope(|s| {
         s.spawn(|| {
@@ -32,7 +32,7 @@ fn SyncHashMap_race() {
 }
 
 #[test]
-fn SyncVec_race() {
+fn sync_vec_race() {
     let vec: SyncVec<bool> = SyncVec::new();
     vec.push(true);
     std::thread::scope(|s| {
@@ -44,7 +44,7 @@ fn SyncVec_race() {
 }
 
 #[test]
-fn SyncIndexMap_race() {
+fn sync_index_map_race() {
     let map: SyncIndexMap<bool, bool> = SyncIndexMap::new();
     std::thread::scope(|s| {
         s.spawn(|| {
