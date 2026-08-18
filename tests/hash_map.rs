@@ -252,3 +252,23 @@ pub fn test_iter_ref() {
     }
     assert_eq!(sum, 33);
 }
+
+// `Index<&K>` access, kept for pre-0.2.17 API compatibility.
+#[test]
+pub fn test_index() {
+    let m = SyncHashMap::<i32, i32>::new();
+    m.insert(1, 10);
+    m.insert(2, 20);
+    assert_eq!(m[&1], 10);
+    assert_eq!(m[&2], 20);
+}
+
+// `iter_mut` must deref to the inner map iterator (pre-0.2.17 API).
+#[test]
+pub fn test_iter_mut_deref() {
+    let m = SyncHashMap::<i32, i32>::new();
+    m.insert(1, 10);
+    m.insert(2, 20);
+    let it = m.iter_mut();
+    assert_eq!(it.len(), 2); // via Deref to the inner iterator
+}

@@ -198,3 +198,45 @@ pub fn test_iter_ref() {
     }
     assert_eq!(via_into_iter, 6);
 }
+
+// `SyncVec` must support index access `v[0]` (used e.g. by rbatis's
+// `rb.intercepts[0]`).
+#[test]
+pub fn test_index() {
+    let v = SyncVec::new();
+    v.push(10);
+    v.push(20);
+    v.push(30);
+    assert_eq!(v[0], 10);
+    assert_eq!(v[1], 20);
+    assert_eq!(v[2], 30);
+}
+
+#[test]
+#[should_panic(expected = "index out of bounds")]
+pub fn test_index_out_of_bounds() {
+    let v = SyncVec::<i32>::new();
+    let _ = v[0];
+}
+
+// `get_uncheck` is kept for pre-0.2.17 API compatibility.
+#[test]
+pub fn test_get_uncheck() {
+    let v = SyncVec::new();
+    v.push(1);
+    v.push(2);
+    assert_eq!(unsafe { *v.get_uncheck(0) }, 1);
+    assert_eq!(unsafe { *v.get_uncheck(1) }, 2);
+}
+
+// `iter_mut` must deref to `std::slice::IterMut` (pre-0.2.17 API).
+#[test]
+pub fn test_iter_mut_deref() {
+    let v = SyncVec::new();
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    let mut it = v.iter_mut();
+    assert_eq!(it.len(), 3); // via Deref to slice::IterMut
+    assert_eq!(it.next(), Some(&mut 1));
+}

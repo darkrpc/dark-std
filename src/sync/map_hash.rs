@@ -9,7 +9,7 @@ use std::collections::{
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Index};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -95,6 +95,20 @@ impl<'a, K, V> Iterator for HashMapIter<'a, K, V> {
 pub struct HashMapIterMut<'a, K, V> {
     _w: WriteLock<'a>,
     inner: MapIterMut<'a, K, V>,
+}
+
+impl<'a, K, V> Deref for HashMapIterMut<'a, K, V> {
+    type Target = MapIterMut<'a, K, V>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<'a, K, V> DerefMut for HashMapIterMut<'a, K, V> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
 }
 
 impl<'a, K, V> Iterator for HashMapIterMut<'a, K, V> {
@@ -377,6 +391,22 @@ impl<'a, K: Eq + Hash, V> IntoIterator for &'a SyncHashMap<K, V> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+/// Index access, kept for compatibility with the pre-0.2.17 API.
+///
+/// # Contract
+/// The returned reference is only valid while no other thread mutates the
+/// container. Prefer [`SyncHashMap::get`], which pins a reader slot.
+impl<K, V> Index<&K> for SyncHashMap<K, V>
+where
+    K: Eq + Hash,
+{
+    type Output = V;
+
+    fn index(&self, index: &K) -> &Self::Output {
+        unsafe { &(&*self.dirty.get())[index] }
     }
 }
 

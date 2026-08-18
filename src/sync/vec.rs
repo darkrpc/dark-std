@@ -2,6 +2,7 @@ use parking_lot::Mutex;
 use serde::{Deserializer, Serialize, Serializer};
 use std::cell::UnsafeCell;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::{Deref, DerefMut, Index};
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -50,6 +51,20 @@ impl<'a, V> Iterator for VecIterMut<'a, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
+    }
+}
+
+impl<'a, V> Deref for VecIterMut<'a, V> {
+    type Target = SliceIterMut<'a, V>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<'a, V> DerefMut for VecIterMut<'a, V> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }
 
@@ -252,6 +267,15 @@ impl<V> SyncVec<V> {
         }
     }
 
+    /// # Safety
+    /// `index` must be in bounds, and the returned reference is only valid
+    /// while no concurrent write mutates the container (same contract as the
+    /// pre-0.2.17 API).
+    #[inline]
+    pub unsafe fn get_uncheck(&self, index: usize) -> &V {
+        unsafe { (&*self.dirty.get()).get_unchecked(index) }
+    }
+
     /// Returns a write-guarded mutable reference to the value at `index`.
     ///
     /// The guard holds the writer lock (writers are mutually exclusive and
@@ -327,6 +351,24 @@ impl<'a, V> IntoIterator for &'a SyncVec<V> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+/// Index access, kept for compatibility with the pre-0.2.17 API (e.g. rbatis
+/// reads `rb.intercepts[0]`).
+///
+/// # Contract
+/// The returned reference is only valid while no other thread mutates the
+/// container (same contract as `std::slice::Index` on an unsynchronized
+/// `Vec`). Prefer [`SyncVec::get`], which pins a reader slot and is safe
+/// against concurrent writers.
+impl<V> Index<usize> for SyncVec<V> {
+    type Output = V;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        unsafe { &*self.dirty.get() }
+            .get(index)
+            .expect("index out of bounds")
     }
 }
 
