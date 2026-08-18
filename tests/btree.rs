@@ -101,3 +101,16 @@ pub fn test_get_mut_not_eq_key() {
     let v2 = m.get_mut(&2).unwrap();
     assert_eq!(*v2, 2);
 }
+
+// `&SyncBtreeMap` must implement `IntoIterator` (the pattern `for (k, v) in &m`).
+#[test]
+pub fn test_iter_ref() {
+    let m = SyncBtreeMap::<i32, i32>::new();
+    m.insert(1, 10);
+    m.insert(2, 20);
+    let mut sum = 0;
+    for (k, v) in &m {
+        sum += k + v;
+    }
+    assert_eq!(sum, 33);
+}

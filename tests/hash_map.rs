@@ -239,3 +239,16 @@ pub fn test_get_mut_not_eq_key() {
 //     }
 //     wait1.wait();
 // }
+
+// `&SyncHashMap` must implement `IntoIterator` (the pattern `for (k, v) in &m`).
+#[test]
+pub fn test_iter_ref() {
+    let m = SyncHashMap::<i32, i32>::new();
+    m.insert(1, 10);
+    m.insert(2, 20);
+    let mut sum = 0;
+    for (k, v) in &m {
+        sum += k + v;
+    }
+    assert_eq!(sum, 33);
+}

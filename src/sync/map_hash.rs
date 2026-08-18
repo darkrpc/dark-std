@@ -371,6 +371,15 @@ where
     }
 }
 
+impl<'a, K: Eq + Hash, V> IntoIterator for &'a SyncHashMap<K, V> {
+    type Item = (&'a K, &'a V);
+    type IntoIter = HashMapIter<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl<K: Eq + Hash, V> From<Map<K, V>> for SyncHashMap<K, V> {
     fn from(arg: Map<K, V>) -> Self {
         Self::from(arg)

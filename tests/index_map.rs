@@ -226,3 +226,16 @@ pub fn test_iter_mut() {
 //     }
 //     wait1.wait();
 // }
+
+// `&SyncIndexMap` must implement `IntoIterator` (the pattern `for (k, v) in &m`).
+#[test]
+pub fn test_iter_ref() {
+    let m = SyncIndexMap::<i32, i32>::new();
+    m.insert(1, 10);
+    m.insert(2, 20);
+    let mut sum = 0;
+    for (k, v) in &m {
+        sum += k + v;
+    }
+    assert_eq!(sum, 33);
+}

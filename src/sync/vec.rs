@@ -321,6 +321,15 @@ impl<V> IntoIterator for SyncVec<V> {
     }
 }
 
+impl<'a, V> IntoIterator for &'a SyncVec<V> {
+    type Item = &'a V;
+    type IntoIter = VecIter<'a, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl<V> Serialize for SyncVec<V>
 where
     V: Serialize,

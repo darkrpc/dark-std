@@ -379,6 +379,15 @@ impl<K: Eq + Hash + Ord, V> IntoIterator for SyncBtreeMap<K, V> {
     }
 }
 
+impl<'a, K: Eq + Hash, V> IntoIterator for &'a SyncBtreeMap<K, V> {
+    type Item = (&'a K, &'a V);
+    type IntoIter = BtreeMapIter<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl<K: Eq + Hash + Ord, V> From<BTreeMap<K, V>> for SyncBtreeMap<K, V> {
     fn from(arg: BTreeMap<K, V>) -> Self {
         Self::from(arg)

@@ -177,3 +177,24 @@ pub fn test_vec_iter_is_send() {
     fn assert_send<T: Send>() {}
     assert_send::<dark_std::sync::VecIter<'static, i32>>();
 }
+
+// `&SyncVec` must implement `IntoIterator` (the pattern `for x in &v`, used
+// e.g. by fast_log's `for x in &self.modules`), not just the consuming one.
+#[test]
+pub fn test_iter_ref() {
+    let v = SyncVec::new();
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    let mut sum = 0;
+    for x in &v {
+        sum += *x;
+    }
+    assert_eq!(sum, 6);
+
+    let mut via_into_iter = 0;
+    for x in (&v).into_iter() {
+        via_into_iter += *x;
+    }
+    assert_eq!(via_into_iter, 6);
+}
