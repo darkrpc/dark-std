@@ -2,7 +2,6 @@ use parking_lot::Mutex;
 use serde::{Deserializer, Serialize, Serializer};
 use std::cell::UnsafeCell;
 use std::fmt::{Debug, Display, Formatter};
-use std::marker::PhantomData;
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -17,10 +16,13 @@ pub type VecGet<'a, V> = ReadGuard<'a, V>;
 pub type VecRefMut<'a, V> = WriteGuard<'a, V>;
 
 /// Read iterator returned by [`SyncVec::iter`].
+///
+/// The iterator is `Send` (when `V: Sync`) and may be moved between threads:
+/// the reader counter is a shared atomic owned by the container, so releasing
+/// it from another thread (on drop) is safe.
 pub struct VecIter<'a, V> {
     count: &'a AtomicUsize,
     inner: SliceIter<'a, V>,
-    _not_send: PhantomData<*const ()>,
 }
 
 impl<'a, V> Drop for VecIter<'a, V> {
@@ -283,7 +285,6 @@ impl<V> SyncVec<V> {
         VecIter {
             count,
             inner: m.iter(),
-            _not_send: PhantomData,
         }
     }
 

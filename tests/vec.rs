@@ -144,3 +144,36 @@ pub fn test_macro3() {
     let v = sync_vec![1;2];
     assert_eq!(&*v.dirty_ref(), &vec![1; 2]);
 }
+
+// Regression for the rbatis scenario: an async executor iterates the
+// container (e.g. running interceptors) while holding the iterator across an
+// `.await` inside a `tokio::spawn`ed task. That requires the iterator to be
+// `Send`, otherwise the future "cannot be sent between threads safely".
+#[tokio::test]
+pub async fn test_iter_send_across_await() {
+    let v = Arc::new(SyncVec::new());
+    v.push(1);
+    v.push(2);
+    v.push(3);
+
+    let v2 = v.clone();
+    let sum = tokio::spawn(async move {
+        let mut sum = 0;
+        for item in v2.iter() {
+            // keep the iterator alive across an await
+            tokio::task::yield_now().await;
+            sum += *item;
+        }
+        sum
+    })
+    .await
+    .expect("spawned task panicked");
+    assert_eq!(sum, 6);
+}
+
+// Compile-time guard: the read iterator must be `Send` for `V: Sync`.
+#[test]
+pub fn test_vec_iter_is_send() {
+    fn assert_send<T: Send>() {}
+    assert_send::<dark_std::sync::VecIter<'static, i32>>();
+}
