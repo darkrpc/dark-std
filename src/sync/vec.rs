@@ -1,117 +1,27 @@
-use parking_lot::Mutex;
+use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::cell::UnsafeCell;
 use std::fmt::{Debug, Display, Formatter};
-use std::marker::PhantomData;
+
+use std::ops::{Deref, DerefMut, Index};
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::vec::IntoIter;
+use indexmap::IndexMap;
 
-use super::{ReadGuard, ReadMapGuard, WriteGuard, WriteLock};
-
-/// Read guard returned by [`SyncVec::get`].
-pub type VecGet<'a, V> = ReadGuard<'a, V>;
-
-/// Write guard returned by [`SyncVec::get_mut`].
-pub type VecRefMut<'a, V> = WriteGuard<'a, V>;
-
-/// Read iterator returned by [`SyncVec::iter`].
-pub struct VecIter<'a, V> {
-    count: &'a AtomicUsize,
-    inner: SliceIter<'a, V>,
-    _not_send: PhantomData<*const ()>,
-}
-
-impl<'a, V> Drop for VecIter<'a, V> {
-    fn drop(&mut self) {
-        self.count.fetch_sub(1, Ordering::Release);
-    }
-}
-
-impl<'a, V> Iterator for VecIter<'a, V> {
-    type Item = &'a V;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
-    }
-}
-
-/// Write iterator returned by [`SyncVec::iter_mut`].
-pub struct VecIterMut<'a, V> {
-    _w: WriteLock<'a>,
-    inner: SliceIterMut<'a, V>,
-}
-
-impl<'a, V> Iterator for VecIterMut<'a, V> {
-    type Item = &'a mut V;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
-    }
-}
-
-/// An asynchronous vector that can be safely shared between threads.
-///
-/// Reads are lock-free: `get`/`iter`/`dirty_ref`/`len`/`contains` only
-/// register a reader slot with an atomic counter and then read the vector
-/// without any lock (readers never block each other and never touch a lock
-/// word). Writes take a mutex, raise a `writing` flag and wait until all
-/// in-flight readers are gone before mutating the vector in place (amortised
-/// O(1) push, no whole-container copy).
-///
-/// # Deadlock note
-/// A read guard makes writers wait until it is dropped. Do not call a write
-/// method while a read/write guard is alive in the same scope: drop the guard
-/// first (e.g. `drop(g)` before `push`/`remove`/`get_mut`), otherwise the
-/// writer waits for its own guard and deadlocks.
 pub struct SyncVec<V> {
     dirty: UnsafeCell<Vec<V>>,
-    write: Mutex<()>,
-    id: usize,
-    writing: AtomicBool,
-    registry: Mutex<Vec<std::boxed::Box<AtomicUsize>>>,
+    lock: ReentrantMutex<()>,
+    locks: UnsafeCell<IndexMap<usize, ReentrantMutex<()>>>,
 }
 
-// SAFETY: all writers hold `write` and wait for `readers` to drain before
-// touching `dirty`; readers either see a consistent snapshot or retry while a
-// writer is active, so concurrent access to `dirty` is race-free.
-unsafe impl<V: Send> Send for SyncVec<V> {}
-unsafe impl<V: Sync> Sync for SyncVec<V> {}
+/// this is safety, dirty mutex ensure
+unsafe impl<V> Send for SyncVec<V> {}
+
+/// this is safety, dirty mutex ensure
+unsafe impl<V> Sync for SyncVec<V> {}
 
 impl<V> SyncVec<V> {
-    #[inline]
-    fn begin_read(&self) -> &AtomicUsize {
-        // The counter lives in thread-local storage: concurrent readers only
-        // touch their own cache line and never contend with each other. SeqCst
-        // closes the store-buffering window with the writer's all-zero scan.
-        let count = super::reader_count_for(self.id, &self.registry);
-        loop {
-            count.fetch_add(1, Ordering::SeqCst);
-            if !self.writing.load(Ordering::SeqCst) {
-                return count;
-            }
-            count.fetch_sub(1, Ordering::SeqCst);
-            std::thread::yield_now();
-        }
-    }
-
-    #[inline]
-    fn begin_write(&self) -> WriteLock<'_> {
-        let lock = self.write.lock();
-        self.writing.store(true, Ordering::SeqCst);
-        loop {
-            let registry = self.registry.lock();
-            let all_zero = registry.iter().all(|c| c.load(Ordering::SeqCst) == 0);
-            if all_zero {
-                break;
-            }
-            drop(registry);
-            std::thread::yield_now();
-        }
-        WriteLock::new(lock, &self.writing)
-    }
-
     pub fn new_arc() -> Arc<Self> {
         Arc::new(Self::new())
     }
@@ -119,77 +29,87 @@ impl<V> SyncVec<V> {
     pub fn new() -> Self {
         Self {
             dirty: UnsafeCell::new(Vec::new()),
-            write: Mutex::new(()),
-            id: super::CONTAINER_ID.fetch_add(1, Ordering::Relaxed),
-            writing: AtomicBool::new(false),
-            registry: Mutex::new(Vec::new()),
+            lock: Default::default(),
+            locks: UnsafeCell::new(IndexMap::default()),
         }
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             dirty: UnsafeCell::new(Vec::with_capacity(capacity)),
-            write: Mutex::new(()),
-            id: super::CONTAINER_ID.fetch_add(1, Ordering::Relaxed),
-            writing: AtomicBool::new(false),
-            registry: Mutex::new(Vec::new()),
+            lock: Default::default(),
+            locks: UnsafeCell::new(IndexMap::with_capacity(capacity)),
         }
     }
 
     pub fn with_vec(vec: Vec<V>) -> Self {
         Self {
+            lock: Default::default(),
+            locks: UnsafeCell::new(IndexMap::with_capacity(vec.capacity())),
             dirty: UnsafeCell::new(vec),
-            write: Mutex::new(()),
-            id: super::CONTAINER_ID.fetch_add(1, Ordering::Relaxed),
-            writing: AtomicBool::new(false),
-            registry: Mutex::new(Vec::new()),
         }
     }
 
     pub fn insert(&self, index: usize, v: V) -> Option<V> {
-        let _w = self.begin_write();
-        unsafe { &mut *self.dirty.get() }.insert(index, v);
+        let g = self.lock.lock();
+        let m = unsafe { &mut *self.dirty.get() };
+        m.insert(index, v);
+        drop(g);
         None
     }
 
     pub fn set(&self, index: usize, v: V) -> Option<V> {
-        let _w = self.begin_write();
+        let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         m[index] = v;
+        drop(g);
         None
     }
 
     pub fn push(&self, v: V) -> Option<V> {
-        let _w = self.begin_write();
-        unsafe { &mut *self.dirty.get() }.push(v);
+        let g = self.lock.lock();
+        let m = unsafe { &mut *self.dirty.get() };
+        m.push(v);
+        drop(g);
         None
     }
 
     pub fn pushes(&self, arr: Vec<V>) -> Option<V> {
-        let _w = self.begin_write();
-        unsafe { &mut *self.dirty.get() }.extend(arr);
+        let g = self.lock.lock();
+        let m = unsafe { &mut *self.dirty.get() };
+        for v in arr {
+            m.push(v);
+        }
+        drop(g);
         None
     }
 
     pub fn push_mut(&mut self, v: V) -> Option<V> {
-        unsafe { &mut *self.dirty.get() }.push(v);
+        let m = unsafe { &mut *self.dirty.get() };
+        m.push(v);
         None
     }
 
     pub fn pop(&self) -> Option<V> {
-        let _w = self.begin_write();
-        unsafe { &mut *self.dirty.get() }.pop()
+        let g = self.lock.lock();
+        let m = unsafe { &mut *self.dirty.get() };
+        let r = m.pop();
+        drop(g);
+        r
     }
 
     pub fn pop_mut(&mut self) -> Option<V> {
-        unsafe { &mut *self.dirty.get() }.pop()
+        let m = unsafe { &mut *self.dirty.get() };
+        m.pop()
     }
 
     pub fn remove(&self, index: usize) -> Option<V> {
-        let _w = self.begin_write();
+        let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         if m.len() > index {
-            Some(m.remove(index))
+            let v = m.remove(index);
+            drop(g);
+            Some(v)
         } else {
             None
         }
@@ -198,116 +118,212 @@ impl<V> SyncVec<V> {
     pub fn remove_mut(&mut self, index: usize) -> Option<V> {
         let m = unsafe { &mut *self.dirty.get() };
         if m.len() > index {
-            Some(m.remove(index))
+            let v = m.remove(index);
+            Some(v)
         } else {
             None
         }
     }
 
     pub fn len(&self) -> usize {
-        let count = self.begin_read();
-        let n = unsafe { &*self.dirty.get() }.len();
-        count.fetch_sub(1, Ordering::Release);
-        n
+        unsafe { (&*self.dirty.get()).len() }
     }
 
     pub fn is_empty(&self) -> bool {
-        let count = self.begin_read();
-        let b = unsafe { &*self.dirty.get() }.is_empty();
-        count.fetch_sub(1, Ordering::Release);
-        b
+        unsafe { (&*self.dirty.get()).is_empty() }
     }
 
     pub fn clear(&self) {
-        let _w = self.begin_write();
-        unsafe { &mut *self.dirty.get() }.clear();
+        let g = self.lock.lock();
+        let m = unsafe { &mut *self.dirty.get() };
+        m.clear();
+        drop(g);
     }
 
     pub fn shrink_to_fit(&self) {
-        let _w = self.begin_write();
-        unsafe { &mut *self.dirty.get() }.shrink_to_fit();
+        let g = self.lock.lock();
+        let m = unsafe { &mut *self.dirty.get() };
+        m.shrink_to_fit();
+        drop(g);
     }
 
     pub fn from(vec: Vec<V>) -> Self {
-        Self::with_vec(vec)
+        let s = Self::with_vec(vec);
+        s
     }
 
-    /// Returns a read-guarded reference to the value at `index`.
-    ///
-    /// The read is lock-free: it only registers a reader slot, so concurrent
-    /// reads never block each other and never take a lock. Writers wait for
-    /// the returned guard to be dropped before mutating the vector.
     #[inline]
-    pub fn get(&self, index: usize) -> Option<VecGet<'_, V>> {
-        let count = self.begin_read();
-        let m = unsafe { &*self.dirty.get() };
-        match m.get(index) {
-            Some(v) => Some(ReadGuard::new(count, v)),
-            None => {
-                count.fetch_sub(1, Ordering::Release);
-                None
-            }
+    pub fn get(&self, index: usize) -> Option<&V> {
+        unsafe {
+            return (&*self.dirty.get()).get(index);
         }
     }
 
-    /// Returns a write-guarded mutable reference to the value at `index`.
-    ///
-    /// The guard holds the writer lock (writers are mutually exclusive and
-    /// wait for in-flight readers) until it is dropped, so the mutable
-    /// reference can never race with concurrent readers or writers. Drop it
-    /// before calling another method from the same scope.
+    #[inline]
+    pub unsafe fn get_uncheck(&self, index: usize) -> &V {
+        unsafe { (&*self.dirty.get()).get_unchecked(index) }
+    }
+
     #[inline]
     pub fn get_mut(&self, index: usize) -> Option<VecRefMut<'_, V>> {
-        let w = self.begin_write();
-        let m = unsafe { &mut *self.dirty.get() };
-        match m.get_mut(index) {
-            Some(v) => Some(WriteGuard::new(w, v)),
-            None => None,
+        let get_mut_lock = self.lock.lock();
+        let m = unsafe { &mut *self.locks.get() };
+        if m.contains_key(&index) == false {
+            let g = ReentrantMutex::new(());
+            m.insert(index, g);
         }
+        let g = m.get(&index).unwrap();
+        let v = VecRefMut {
+            k: index,
+            m: self,
+            _g: g.lock(),
+            value: {
+                let m = unsafe { &mut *self.dirty.get() };
+                Some(m.get_mut(index)?)
+            },
+        };
+        drop(get_mut_lock);
+        Some(v)
     }
 
     #[inline]
     pub fn contains(&self, x: &V) -> bool
-    where
-        V: PartialEq,
+        where
+            V: PartialEq,
     {
-        let count = self.begin_read();
-        let b = unsafe { &*self.dirty.get() }.contains(x);
-        count.fetch_sub(1, Ordering::Release);
-        b
+        let m = unsafe { &mut *self.dirty.get() };
+        m.contains(x)
     }
 
-    pub fn iter(&self) -> VecIter<'_, V> {
-        let count = self.begin_read();
-        let m = unsafe { &*self.dirty.get() };
-        VecIter {
-            count,
-            inner: m.iter(),
-            _not_send: PhantomData,
-        }
+    pub fn iter(&self) -> std::slice::Iter<'_, V> {
+        unsafe { (&*self.dirty.get()).iter() }
     }
 
     pub fn iter_mut(&self) -> VecIterMut<'_, V> {
-        let w = self.begin_write();
         let m = unsafe { &mut *self.dirty.get() };
-        VecIterMut {
-            _w: w,
-            inner: m.iter_mut(),
-        }
+        let mut iter = VecIterMut {
+            _g: self.lock.lock(),
+            inner: None,
+        };
+        iter.inner = Some(m.iter_mut());
+        return iter;
     }
 
     pub fn into_iter(self) -> IntoIter<V> {
-        self.into_inner().into_iter()
+        let m = self.dirty.into_inner();
+        m.into_iter()
     }
 
-    pub fn dirty_ref(&self) -> ReadMapGuard<'_, Vec<V>> {
-        let count = self.begin_read();
-        let m = unsafe { &*self.dirty.get() };
-        ReadMapGuard::new(count, m)
+    pub fn dirty_ref(&self) -> &Vec<V> {
+        unsafe { &*self.dirty.get() }
     }
 
     pub fn into_inner(self) -> Vec<V> {
         self.dirty.into_inner()
+    }
+}
+
+pub struct VecRefMut<'a, V> {
+    k: usize,
+    m: &'a SyncVec<V>,
+    _g: ReentrantMutexGuard<'a, ()>,
+    value: Option<&'a mut V>,
+}
+
+impl<'a, V> Drop for VecRefMut<'a, V> {
+    fn drop(&mut self) {
+        let m = unsafe { &mut *self.m.locks.get() };
+        _ = m.swap_remove(&self.k);
+    }
+}
+
+impl<'a, V> Deref for VecRefMut<'_, V> {
+    type Target = V;
+
+    fn deref(&self) -> &Self::Target {
+        self.value.as_ref().unwrap()
+    }
+}
+
+impl<'a, V> DerefMut for VecRefMut<'_, V> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.value.as_mut().unwrap()
+    }
+}
+
+impl<'a, V> Debug for VecRefMut<'_, V>
+    where
+        V: Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.value.fmt(f)
+    }
+}
+
+impl<'a, V> Display for VecRefMut<'_, V>
+    where
+        V: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.value.as_ref().unwrap().fmt(f)
+    }
+}
+
+pub struct Iter<'a, V> {
+    inner: Option<SliceIter<'a, *const V>>,
+}
+
+impl<'a, V> Iterator for Iter<'a, V> {
+    type Item = &'a V;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.inner.as_mut().unwrap().next();
+        match next {
+            None => None,
+            Some(v) => {
+                if v.is_null() {
+                    None
+                } else {
+                    unsafe { Some(&**v) }
+                }
+            }
+        }
+    }
+}
+
+pub struct VecIterMut<'a, V> {
+    _g: ReentrantMutexGuard<'a, ()>,
+    inner: Option<SliceIterMut<'a, V>>,
+}
+
+impl<'a, V> Deref for VecIterMut<'a, V> {
+    type Target = SliceIterMut<'a, V>;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.as_ref().unwrap()
+    }
+}
+
+impl<'a, V> DerefMut for VecIterMut<'a, V> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.inner.as_mut().unwrap()
+    }
+}
+
+impl<'a, V> Iterator for VecIterMut<'a, V> {
+    type Item = &'a mut V;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.as_mut().unwrap().next()
+    }
+}
+
+impl<'a, V> IntoIterator for &'a SyncVec<V> {
+    type Item = &'a V;
+    type IntoIter = std::slice::Iter<'a, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -321,24 +337,24 @@ impl<V> IntoIterator for SyncVec<V> {
 }
 
 impl<V> Serialize for SyncVec<V>
-where
-    V: Serialize,
+    where
+        V: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
+        where
+            S: Serializer,
     {
         self.dirty_ref().serialize(serializer)
     }
 }
 
 impl<'de, V> serde::Deserialize<'de> for SyncVec<V>
-where
-    V: serde::Deserialize<'de>,
+    where
+        V: serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         let m = Vec::deserialize(deserializer)?;
         Ok(Self::from(m))
@@ -346,26 +362,35 @@ where
 }
 
 impl<V> Debug for SyncVec<V>
-where
-    V: Debug,
+    where
+        V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&*self.dirty_ref(), f)
+        self.dirty_ref().fmt(f)
     }
 }
 
 impl<V> Display for SyncVec<V>
-where
-    V: Debug,
+    where
+        V: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&*self.dirty_ref(), f)
+        use std::fmt::Pointer;
+        self.dirty_ref().fmt(f)
+    }
+}
+
+impl<V> Index<usize> for SyncVec<V> {
+    type Output = V;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        self.get(index).expect("Out of bounds access")
     }
 }
 
 impl<V: PartialEq> PartialEq for SyncVec<V> {
     fn eq(&self, other: &Self) -> bool {
-        (*self.dirty_ref()).eq(&*other.dirty_ref())
+        self.dirty_ref().eq(other.dirty_ref())
     }
 }
 
