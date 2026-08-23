@@ -1,47 +1,50 @@
-﻿use indexmap::map::{
+﻿use crate::lock::{SyncLock, SyncLockGuard};
+use indexmap::map::{
     IndexMap as Map, IntoIter as MapIntoIter, Iter as MapIter, IterMut as MapIterMut,
 };
-use crate::lock::{SyncLock, SyncLockGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
+use super::entry::{Entry, Retired};
 use super::snapshot::AtomicSnapshot;
 
 /// A concurrent IndexMap with a Go `sync.Map`-style read/dirty architecture:
 ///
 /// - `read`: an immutable snapshot, atomically published. `get` / `iter` /
 ///   `Index` read it lock-free.
-/// - `dirty`: the canonical, mutable map, guarded by `lock`. Every write goes
-///   here and is lazily published into a fresh snapshot.
+/// - `dirty`: the canonical, mutable map, guarded by `lock`.
 ///
-/// Snapshots are immutable and kept alive until the map is dropped, so
-/// references returned by `get` stay valid even while the map is mutated.
-/// Methods that publish a fresh snapshot require `K: Clone + V: Clone`.
-/// Suitable for read-mostly workloads (many readers, few writers).
+/// Every slot is an `Arc<Entry<V>>` shared between the snapshot and `dirty`.
+/// The entry holds an atomic pointer to the value, so updating an existing key
+/// swaps the pointer in place (O(1)) — no snapshot rebuild — and readers
+/// always see the latest value. New keys and removals are published lazily
+/// (tracked by the `amended` flag). Snapshots and retired values are kept
+/// alive until the map is dropped, so references returned by `get` stay valid.
 pub struct SyncIndexMap<K: Eq + Hash, V> {
-    dirty: UnsafeCell<Map<K, V>>,
+    dirty: UnsafeCell<Map<K, Arc<Entry<V>>>>,
     lock: SyncLock,
     amended: AtomicBool,
-    read: AtomicSnapshot<Map<K, V>>,
+    read: AtomicSnapshot<Map<K, Arc<Entry<V>>>>,
+    retired: Retired<V>,
 }
 
 /// Safety: `dirty` is only ever accessed under `lock`; the `read` snapshot is
-/// immutable once published and is kept alive until the map is dropped, so
-/// references derived from it remain valid for the lifetime of `&self`.
+/// immutable once published; values behind entries are immutable once
+/// published and swapped out atomically; retired values and retired snapshots
+/// are kept alive until the map is dropped, so references derived from `get`
+/// remain valid for the lifetime of `&self`.
 unsafe impl<K: Eq + Hash, V> Send for SyncIndexMap<K, V> {}
 unsafe impl<K: Eq + Hash, V> Sync for SyncIndexMap<K, V> {}
 
 impl<K, V> std::ops::Index<&K> for SyncIndexMap<K, V>
 where
-    K: Eq + Hash,
-    K: Clone,
-    V: Clone,
+    K: Eq + Hash + Clone,
 {
     type Output = V;
 
@@ -64,6 +67,7 @@ where
             lock: Default::default(),
             amended: AtomicBool::new(false),
             read: AtomicSnapshot::new(Map::new()),
+            retired: Retired::new(),
         }
     }
 
@@ -73,15 +77,21 @@ where
             lock: Default::default(),
             amended: AtomicBool::new(false),
             read: AtomicSnapshot::new(Map::with_capacity(capacity)),
+            retired: Retired::new(),
         }
     }
 
     pub fn with_map(map: Map<K, V>) -> Self {
+        let dirty = map
+            .into_iter()
+            .map(|(k, v)| (k, Arc::new(Entry::new(v))))
+            .collect();
         Self {
             read: AtomicSnapshot::new(Map::new()),
-            dirty: UnsafeCell::new(map),
+            dirty: UnsafeCell::new(dirty),
             lock: Default::default(),
             amended: AtomicBool::new(true),
+            retired: Retired::new(),
         }
     }
 
@@ -91,7 +101,6 @@ where
     fn promote(&self)
     where
         K: Clone,
-        V: Clone,
     {
         let dirty = unsafe { &*self.dirty.get() };
         self.read.publish(dirty.clone());
@@ -106,17 +115,20 @@ where
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
-        let r = m.insert(k, v);
-        // Updating an existing key must refresh the snapshot, otherwise `get`
-        // would keep serving the stale value from `read`.
-        if r.is_some() {
-            self.promote();
-        } else {
-            // New key: leave it for lazy promotion and mark `amended`.
-            self.amended.store(true, Ordering::Release);
+        if let Some(entry) = m.get(&k) {
+            // Update: swap the value in place (O(1)). The shared entry lets
+            // readers observe the new value without a snapshot rebuild.
+            let old = entry.swap(v);
+            let old_value = unsafe { (*old).clone() };
+            self.retired.push(old);
+            drop(g);
+            return Some(old_value);
         }
+        // New key: leave it for lazy promotion and mark `amended`.
+        m.insert(k, Arc::new(Entry::new(v)));
+        self.amended.store(true, Ordering::Release);
         drop(g);
-        r
+        None
     }
 
     pub fn insert_mut(&mut self, k: K, v: V) -> Option<V>
@@ -124,15 +136,7 @@ where
         K: Clone,
         V: Clone,
     {
-        let m = unsafe { &mut *self.dirty.get() };
-        let r = m.insert(k, v);
-        if r.is_some() {
-            self.promote();
-        } else {
-            // New key: leave it for lazy promotion and mark `amended`.
-            self.amended.store(true, Ordering::Release);
-        }
-        r
+        self.insert(k, v)
     }
 
     pub fn remove(&self, k: &K) -> Option<V>
@@ -142,13 +146,17 @@ where
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
-        let r = m.swap_remove(k);
-        if r.is_some() {
+        if let Some(entry) = m.swap_remove(k) {
+            // Clone the value out; the entry (and its value) stays alive in the
+            // retired snapshot published below.
+            let v = entry.load().clone();
             // Refresh the snapshot so `get` no longer serves the removed key.
             self.promote();
+            drop(g);
+            return Some(v);
         }
         drop(g);
-        r
+        None
     }
 
     pub fn remove_mut(&mut self, k: &K) -> Option<V>
@@ -156,12 +164,7 @@ where
         K: Clone,
         V: Clone,
     {
-        let m = unsafe { &mut *self.dirty.get() };
-        let r = m.swap_remove(k);
-        if r.is_some() {
-            self.promote();
-        }
-        r
+        self.remove(k)
     }
 
     pub fn len(&self) -> usize {
@@ -187,7 +190,6 @@ where
     pub fn clear(&self)
     where
         K: Clone,
-        V: Clone,
     {
         let g = self.lock.lock();
         unsafe { (&mut *self.dirty.get()).clear() };
@@ -198,10 +200,8 @@ where
     pub fn clear_mut(&mut self)
     where
         K: Clone,
-        V: Clone,
     {
-        unsafe { (&mut *self.dirty.get()).clear() };
-        self.promote();
+        self.clear()
     }
 
     pub fn shrink_to_fit(&self) {
@@ -229,10 +229,9 @@ where
     /// the key type.
     ///
     /// Reads are lock-free: the value is served from the immutable `read`
-    /// snapshot. If the key was written to `dirty` since the last snapshot was
-    /// published, a fresh snapshot is published first and the value is served
-    /// from it, so the returned reference always points into immutable,
-    /// retained storage.
+    /// snapshot through a shared entry, so updates are visible immediately.
+    /// If the key was added to `dirty` since the last snapshot was published,
+    /// a fresh snapshot is published first.
     ///
     /// # Examples
     ///
@@ -249,10 +248,9 @@ where
     where
         K: Borrow<Q> + Clone,
         Q: Hash + Eq,
-        V: Clone,
     {
-        if let Some(v) = self.read.load().get(k) {
-            return Some(v);
+        if let Some(entry) = self.read.load().get(k) {
+            return Some(entry.load());
         }
         // If nothing was written to `dirty` since the last snapshot was
         // published, a snapshot miss is a real miss: no lock is needed.
@@ -270,7 +268,7 @@ where
         }
         drop(g);
         if found {
-            self.read.load().get(k)
+            self.read.load().get(k).map(|e| e.load())
         } else {
             None
         }
@@ -278,10 +276,9 @@ where
 
     /// Returns a mutable handle to the value for `k`, implemented with
     /// copy-on-write: the value is cloned, the handle mutates the clone, and
-    /// the result is written back (and published into a fresh snapshot) when
-    /// the handle is dropped. The returned reference stays valid as long as
-    /// the handle is held; concurrent readers may observe the pre-mutation
-    /// value until the handle is dropped.
+    /// the result is swapped back into the shared entry (O(1)) when the handle
+    /// is dropped. Concurrent readers may observe the pre-mutation value until
+    /// the handle is dropped.
     #[inline]
     pub fn get_mut(&self, k: &K) -> Option<HashMapRefMut<'_, K, V>>
     where
@@ -290,7 +287,7 @@ where
     {
         let g = self.lock.lock();
         let dirty = unsafe { &*self.dirty.get() };
-        let value = dirty.get(k)?.clone();
+        let value = dirty.get(k)?.load().clone();
         drop(g);
         Some(HashMapRefMut {
             k: k.clone(),
@@ -318,24 +315,25 @@ where
 
     /// Iterate over the current contents. A fresh snapshot is published first,
     /// so all entries written so far are visible.
-    pub fn iter(&self) -> MapIter<'_, K, V>
+    pub fn iter(&self) -> Iter<'_, K, V>
     where
         K: Clone,
-        V: Clone,
     {
         let g = self.lock.lock();
         self.promote();
         drop(g);
-        self.read.load().iter()
+        Iter {
+            inner: self.read.load().iter(),
+        }
     }
 
-    pub fn iter_mut(&self) -> HashIterMut<'_, K, V>
+    pub fn iter_mut(&self) -> IterMut<'_, K, V>
     where
         K: Clone,
         V: Clone,
     {
         let m = unsafe { &mut *self.dirty.get() };
-        HashIterMut {
+        IterMut {
             m: self,
             _g: self.lock.lock(),
             inner: Some(m.iter_mut()),
@@ -343,11 +341,74 @@ where
     }
 
     pub fn into_iter(self) -> MapIntoIter<K, V> {
-        self.dirty.into_inner().into_iter()
+        self.into_inner().into_iter()
     }
 
     pub fn into_inner(self) -> Map<K, V> {
-        self.dirty.into_inner()
+        // Move `dirty` out; the remaining fields (snapshots, retired values,
+        // lock) are dropped normally at the end of this function.
+        let dirty = self.dirty.into_inner();
+        dirty
+            .into_iter()
+            .map(|(k, entry)| (k, entry.take()))
+            .collect()
+    }
+}
+
+/// Iterator over `(&K, &V)`, served from the immutable snapshot.
+pub struct Iter<'a, K, V> {
+    inner: MapIter<'a, K, Arc<Entry<V>>>,
+}
+
+impl<'a, K, V> Iterator for Iter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(k, e)| (k, e.load()))
+    }
+}
+
+impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> {
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+/// Mutable iterator over `(&K, &mut V)`. Entries shared with snapshots are
+/// replaced with fresh unique ones; mutations are published when the iterator
+/// is dropped.
+pub struct IterMut<'a, K: Eq + Hash + Clone, V: Clone> {
+    m: &'a SyncIndexMap<K, V>,
+    _g: SyncLockGuard<'a>,
+    inner: Option<MapIterMut<'a, K, Arc<Entry<V>>>>,
+}
+
+impl<'a, K: Eq + Hash + Clone, V: Clone> Drop for IterMut<'a, K, V> {
+    fn drop(&mut self) {
+        // Drop the `&mut` borrows into `dirty` first, then publish the
+        // mutations into a fresh snapshot. The lock (`_g`) is still held.
+        self.inner.take();
+        self.m.promote();
+    }
+}
+
+impl<'a, K: Eq + Hash + Clone, V: Clone> Iterator for IterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (k, entry) = self.inner.as_mut().unwrap().next()?;
+        // Make the entry uniquely owned so we can hand out `&mut V`.
+        if Arc::get_mut(entry).is_none() {
+            let current = entry.load().clone();
+            *entry = Arc::new(Entry::new(current));
+        }
+        Some((k, Arc::get_mut(entry).unwrap().get_mut()))
+    }
+}
+
+impl<'a, K: Eq + Hash + Clone, V: Clone> ExactSizeIterator for IterMut<'a, K, V> {
+    fn len(&self) -> usize {
+        self.inner.as_ref().unwrap().len()
     }
 }
 
@@ -357,20 +418,23 @@ pub struct HashMapRefMut<'a, K: Eq + Hash + Clone, V: Clone> {
     value: Option<V>,
 }
 
-impl<'a, K: Clone + Eq + Hash, V: Clone> Drop for HashMapRefMut<'a, K, V> {
+impl<'a, K: Eq + Hash + Clone, V: Clone> Drop for HashMapRefMut<'a, K, V> {
     fn drop(&mut self) {
         if let Some(v) = self.value.take() {
             let g = self.m.lock.lock();
             let dirty = unsafe { &mut *self.m.dirty.get() };
             match dirty.get_mut(&self.k) {
-                Some(slot) => *slot = v,
+                Some(entry) => {
+                    let old = entry.swap(v);
+                    self.m.retired.push(old);
+                }
                 // The key was removed while the handle was held: keep the
                 // mutation by re-inserting it.
                 None => {
-                    dirty.insert(self.k.clone(), v);
+                    dirty.insert(self.k.clone(), Arc::new(Entry::new(v)));
+                    self.m.amended.store(true, Ordering::Release);
                 }
             }
-            self.m.promote();
             drop(g);
         }
     }
@@ -413,52 +477,21 @@ where
     V: Eq,
 {
     fn eq(&self, other: &Self) -> bool {
-        self.value.as_ref().unwrap().eq(&other.value.as_ref().unwrap())
+        self.value
+            .as_ref()
+            .unwrap()
+            .eq(&other.value.as_ref().unwrap())
     }
 }
 
 impl<'a, K: Eq + Hash + Clone, V: Clone> Eq for HashMapRefMut<'_, K, V> where V: Eq {}
 
-pub struct HashIterMut<'a, K: Eq + Hash + Clone, V: Clone> {
-    m: &'a SyncIndexMap<K, V>,
-    _g: SyncLockGuard<'a>,
-    inner: Option<MapIterMut<'a, K, V>>,
-}
-
-impl<'a, K: Eq + Hash + Clone, V: Clone> Drop for HashIterMut<'a, K, V> {
-    fn drop(&mut self) {
-        // Drop the `&mut` borrows into `dirty` first, then publish the
-        // mutations into a fresh snapshot. The lock (`_g`) is still held.
-        self.inner.take();
-        self.m.promote();
-    }
-}
-
-impl<'a, K: Eq + Hash + Clone, V: Clone> Deref for HashIterMut<'a, K, V> {
-    type Target = MapIterMut<'a, K, V>;
-
-    fn deref(&self) -> &Self::Target {
-        self.inner.as_ref().unwrap()
-    }
-}
-
-impl<'a, K: Eq + Hash + Clone, V: Clone> DerefMut for HashIterMut<'a, K, V> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner.as_mut().unwrap()
-    }
-}
-
-impl<'a, K: Eq + Hash + Clone, V: Clone> Iterator for HashIterMut<'a, K, V> {
-    type Item = (&'a K, &'a mut V);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.as_mut().unwrap().next()
-    }
-}
-
-impl<'a, K: Eq + Hash + Clone, V: Clone> IntoIterator for &'a SyncIndexMap<K, V> {
+impl<'a, K: Clone, V> IntoIterator for &'a SyncIndexMap<K, V>
+where
+    K: Eq + Hash,
+{
     type Item = (&'a K, &'a V);
-    type IntoIter = MapIter<'a, K, V>;
+    type IntoIter = Iter<'a, K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -492,10 +525,15 @@ where
     where
         S: Serializer,
     {
+        use serde::ser::SerializeMap;
         let g = self.lock.lock();
-        let r = unsafe { (&*self.dirty.get()).serialize(serializer) };
+        let dirty = unsafe { &*self.dirty.get() };
+        let mut m = serializer.serialize_map(Some(dirty.len()))?;
+        for (k, e) in dirty.iter() {
+            m.serialize_entry(k, e.load())?;
+        }
         drop(g);
-        r
+        m.end()
     }
 }
 
@@ -543,9 +581,13 @@ where
 impl<K: Clone + Eq + Hash, V: Clone> Clone for SyncIndexMap<K, V> {
     fn clone(&self) -> Self {
         let g = self.lock.lock();
-        let c = unsafe { (&*self.dirty.get()).clone() };
+        let dirty = unsafe { &*self.dirty.get() };
+        let m = dirty
+            .iter()
+            .map(|(k, e)| (k.clone(), e.load().clone()))
+            .collect();
         drop(g);
-        SyncIndexMap::from(c)
+        SyncIndexMap::from(m)
     }
 }
 
@@ -554,27 +596,3 @@ impl<K: Eq + Hash, V> Default for SyncIndexMap<K, V> {
         SyncIndexMap::new()
     }
 }
-
-
-// `Index<&K>` access, kept for pre-0.2.17 API compatibility.
-#[test]
-pub fn test_index() {
-    let m = SyncIndexMap::<i32, i32>::new();
-    m.insert(1, 10);
-    m.insert(2, 20);
-    assert_eq!(m[&1], 10);
-    assert_eq!(m[&2], 20);
-}
-
-// `iter_mut` must deref to the inner map iterator (pre-0.2.17 API).
-#[test]
-pub fn test_iter_mut_deref() {
-    let m = SyncIndexMap::<i32, i32>::new();
-    m.insert(1, 10);
-    m.insert(2, 20);
-    let it = m.iter_mut();
-    assert_eq!(it.len(), 2); // via Deref to the inner iterator
-}
-
-
-

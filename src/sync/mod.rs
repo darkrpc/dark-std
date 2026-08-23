@@ -1,6 +1,7 @@
 ﻿pub mod map_btree;
 pub mod map_hash;
 pub mod map_index;
+mod entry;
 mod snapshot;
 pub mod vec;
 pub mod wg;
@@ -13,4 +14,3 @@ pub use map_hash::SyncHashMap;
 pub use map_index::SyncIndexMap;
 pub use vec::*;
 pub use wg::*;
-
