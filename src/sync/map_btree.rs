@@ -1,4 +1,4 @@
-﻿use super::lock::{SyncLock, SyncLockGuard};
+use super::lock::{SyncLock, SyncLockGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
@@ -7,6 +7,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::snapshot::AtomicSnapshot;
 
@@ -24,6 +25,7 @@ use super::snapshot::AtomicSnapshot;
 pub struct SyncBtreeMap<K: Eq + Hash, V> {
     dirty: UnsafeCell<BTreeMap<K, V>>,
     lock: SyncLock,
+    amended: AtomicBool,
     read: AtomicSnapshot<BTreeMap<K, V>>,
 }
 
@@ -56,6 +58,7 @@ where
         Self {
             dirty: UnsafeCell::new(BTreeMap::new()),
             lock: Default::default(),
+            amended: AtomicBool::new(false),
             read: AtomicSnapshot::new(BTreeMap::new()),
         }
     }
@@ -69,6 +72,7 @@ where
             read: AtomicSnapshot::new(BTreeMap::new()),
             dirty: UnsafeCell::new(map),
             lock: Default::default(),
+            amended: AtomicBool::new(true),
         }
     }
 
@@ -82,6 +86,8 @@ where
     {
         let dirty = unsafe { &*self.dirty.get() };
         self.read.publish(dirty.clone());
+        // After publishing, `read` reflects `dirty`: nothing is pending.
+        self.amended.store(false, Ordering::Release);
     }
 
     pub fn insert(&self, k: K, v: V) -> Option<V>
@@ -96,6 +102,9 @@ where
         // would keep serving the stale value from `read`.
         if r.is_some() {
             self.promote();
+        } else {
+            // New key: leave it for lazy promotion and mark `amended`.
+            self.amended.store(true, Ordering::Release);
         }
         drop(g);
         r
@@ -110,6 +119,9 @@ where
         let r = m.insert(k, v);
         if r.is_some() {
             self.promote();
+        } else {
+            // New key: leave it for lazy promotion and mark `amended`.
+            self.amended.store(true, Ordering::Release);
         }
         r
     }
@@ -144,6 +156,9 @@ where
     }
 
     pub fn len(&self) -> usize {
+        if !self.amended.load(Ordering::Acquire) {
+            return self.read.load().len();
+        }
         let g = self.lock.lock();
         let r = unsafe { (&*self.dirty.get()).len() };
         drop(g);
@@ -151,6 +166,9 @@ where
     }
 
     pub fn is_empty(&self) -> bool {
+        if !self.amended.load(Ordering::Acquire) {
+            return self.read.load().is_empty();
+        }
         let g = self.lock.lock();
         let r = unsafe { (&*self.dirty.get()).is_empty() };
         drop(g);
@@ -221,6 +239,11 @@ where
         if let Some(v) = self.read.load().get(k) {
             return Some(v);
         }
+        // If nothing was written to `dirty` since the last snapshot was
+        // published, a snapshot miss is a real miss: no lock is needed.
+        if !self.amended.load(Ordering::Acquire) {
+            return None;
+        }
         // Snapshot miss: the key may have been written to `dirty` without a
         // snapshot refresh yet (lazy promotion). Publish a fresh snapshot and
         // serve from it so the reference points into immutable, retained
@@ -268,6 +291,9 @@ where
     {
         if self.read.load().contains_key(x) {
             return true;
+        }
+        if !self.amended.load(Ordering::Acquire) {
+            return false;
         }
         let g = self.lock.lock();
         let r = unsafe { (&*self.dirty.get()).contains_key(x) };

@@ -1,4 +1,4 @@
-﻿use super::lock::{SyncLock, SyncLockGuard};
+use super::lock::{SyncLock, SyncLockGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::cell::UnsafeCell;
 use std::fmt::{Debug, Display, Formatter};
@@ -6,6 +6,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Deref, DerefMut, Index};
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::vec::IntoIter;
 
 use super::snapshot::AtomicSnapshot;
@@ -24,6 +25,7 @@ use super::snapshot::AtomicSnapshot;
 pub struct SyncVec<V> {
     dirty: UnsafeCell<Vec<V>>,
     lock: SyncLock,
+    amended: AtomicBool,
     read: AtomicSnapshot<Vec<V>>,
 }
 
@@ -42,6 +44,7 @@ impl<V> SyncVec<V> {
         Self {
             dirty: UnsafeCell::new(Vec::new()),
             lock: Default::default(),
+            amended: AtomicBool::new(false),
             read: AtomicSnapshot::new(Vec::new()),
         }
     }
@@ -50,6 +53,7 @@ impl<V> SyncVec<V> {
         Self {
             dirty: UnsafeCell::new(Vec::with_capacity(capacity)),
             lock: Default::default(),
+            amended: AtomicBool::new(false),
             read: AtomicSnapshot::new(Vec::with_capacity(capacity)),
         }
     }
@@ -57,6 +61,7 @@ impl<V> SyncVec<V> {
     pub fn with_vec(vec: Vec<V>) -> Self {
         Self {
             lock: Default::default(),
+            amended: AtomicBool::new(true),
             read: AtomicSnapshot::new(Vec::new()),
             dirty: UnsafeCell::new(vec),
         }
@@ -71,6 +76,8 @@ impl<V> SyncVec<V> {
     {
         let dirty = unsafe { &*self.dirty.get() };
         self.read.publish(dirty.clone());
+        // After publishing, `read` reflects `dirty`: nothing is pending.
+        self.amended.store(false, Ordering::Release);
     }
 
     pub fn insert(&self, index: usize, v: V) -> Option<V>
@@ -104,8 +111,9 @@ impl<V> SyncVec<V> {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         m.push(v);
-        // Appending is lazy: `get` on a yet-unpublished index falls back to
-        // `dirty` and publishes a fresh snapshot.
+        // Appending is lazy: mark `amended`; `get` on a yet-unpublished index
+        // falls back to `dirty` and publishes a fresh snapshot.
+        self.amended.store(true, Ordering::Release);
         drop(g);
         None
     }
@@ -116,6 +124,7 @@ impl<V> SyncVec<V> {
         for v in arr {
             m.push(v);
         }
+        self.amended.store(true, Ordering::Release);
         drop(g);
         None
     }
@@ -123,6 +132,7 @@ impl<V> SyncVec<V> {
     pub fn push_mut(&mut self, v: V) -> Option<V> {
         let m = unsafe { &mut *self.dirty.get() };
         m.push(v);
+        self.amended.store(true, Ordering::Release);
         None
     }
 
@@ -186,6 +196,9 @@ impl<V> SyncVec<V> {
     }
 
     pub fn len(&self) -> usize {
+        if !self.amended.load(Ordering::Acquire) {
+            return self.read.load().len();
+        }
         let g = self.lock.lock();
         let r = unsafe { (&*self.dirty.get()).len() };
         drop(g);
@@ -193,6 +206,9 @@ impl<V> SyncVec<V> {
     }
 
     pub fn is_empty(&self) -> bool {
+        if !self.amended.load(Ordering::Acquire) {
+            return self.read.load().is_empty();
+        }
         let g = self.lock.lock();
         let r = unsafe { (&*self.dirty.get()).is_empty() };
         drop(g);
@@ -291,6 +307,9 @@ impl<V> SyncVec<V> {
     {
         if self.read.load().contains(x) {
             return true;
+        }
+        if !self.amended.load(Ordering::Acquire) {
+            return false;
         }
         let g = self.lock.lock();
         let r = unsafe { (&*self.dirty.get()).contains(x) };
