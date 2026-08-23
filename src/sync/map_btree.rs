@@ -1,4 +1,4 @@
-use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
+﻿use super::lock::{SyncLock, SyncLockGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
@@ -8,17 +8,29 @@ use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
-/// this sync map used to many reader,writer less.space-for-time strategy
+use super::snapshot::AtomicSnapshot;
+
+/// A concurrent BTreeMap with a Go `sync.Map`-style read/dirty architecture:
+///
+/// - `read`: an immutable snapshot, atomically published. `get` / `iter` /
+///   `Index` read it lock-free.
+/// - `dirty`: the canonical, mutable map, guarded by `lock`. Every write goes
+///   here and is lazily published into a fresh snapshot.
+///
+/// Snapshots are immutable and kept alive until the map is dropped, so
+/// references returned by `get` stay valid even while the map is mutated.
+/// Methods that publish a fresh snapshot require `K: Clone + V: Clone`.
+/// Suitable for read-mostly workloads (many readers, few writers).
 pub struct SyncBtreeMap<K: Eq + Hash, V> {
-    locks: UnsafeCell<BTreeMap<K, ReentrantMutex<()>>>,
     dirty: UnsafeCell<BTreeMap<K, V>>,
-    lock: ReentrantMutex<()>,
+    lock: SyncLock,
+    read: AtomicSnapshot<BTreeMap<K, V>>,
 }
 
-/// this is safety, dirty mutex ensure
+/// Safety: `dirty` is only ever accessed under `lock`; the `read` snapshot is
+/// immutable once published and is kept alive until the map is dropped, so
+/// references derived from it remain valid for the lifetime of `&self`.
 unsafe impl<K: Eq + Hash, V> Send for SyncBtreeMap<K, V> {}
-
-/// this is safety, dirty mutex ensure
 unsafe impl<K: Eq + Hash, V> Sync for SyncBtreeMap<K, V> {}
 
 impl<K, V> std::ops::Index<&K> for SyncBtreeMap<K, V>
@@ -28,7 +40,7 @@ where
     type Output = V;
 
     fn index(&self, index: &K) -> &Self::Output {
-        unsafe { &(&*self.dirty.get())[index] }
+        &self.read.load()[index]
     }
 }
 
@@ -42,9 +54,9 @@ where
 
     pub fn new() -> Self {
         Self {
-            locks: UnsafeCell::new(BTreeMap::new()),
             dirty: UnsafeCell::new(BTreeMap::new()),
             lock: Default::default(),
+            read: AtomicSnapshot::new(BTreeMap::new()),
         }
     }
 
@@ -54,74 +66,115 @@ where
 
     pub fn with_map(map: BTreeMap<K, V>) -> Self {
         Self {
-            locks: UnsafeCell::new(BTreeMap::new()),
+            read: AtomicSnapshot::new(BTreeMap::new()),
             dirty: UnsafeCell::new(map),
             lock: Default::default(),
         }
     }
 
+    /// Publish the current `dirty` map as a fresh immutable snapshot.
+    ///
+    /// The caller must hold `lock` (or have exclusive `&mut` access).
+    fn promote(&self)
+    where
+        K: Clone,
+        V: Clone,
+    {
+        let dirty = unsafe { &*self.dirty.get() };
+        self.read.publish(dirty.clone());
+    }
+
     pub fn insert(&self, k: K, v: V) -> Option<V>
     where
-        K: Ord,
+        K: Ord + Clone,
+        V: Clone,
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         let r = m.insert(k, v);
+        // Updating an existing key must refresh the snapshot, otherwise `get`
+        // would keep serving the stale value from `read`.
+        if r.is_some() {
+            self.promote();
+        }
         drop(g);
         r
     }
 
     pub fn insert_mut(&mut self, k: K, v: V) -> Option<V>
     where
-        K: Ord,
+        K: Ord + Clone,
+        V: Clone,
     {
         let m = unsafe { &mut *self.dirty.get() };
-        m.insert(k, v)
+        let r = m.insert(k, v);
+        if r.is_some() {
+            self.promote();
+        }
+        r
     }
 
     pub fn remove(&self, k: &K) -> Option<V>
     where
-        K: Ord,
+        K: Ord + Clone,
+        V: Clone,
     {
         let g = self.lock.lock();
         let m = unsafe { &mut *self.dirty.get() };
         let r = m.remove(k);
+        if r.is_some() {
+            // Refresh the snapshot so `get` no longer serves the removed key.
+            self.promote();
+        }
         drop(g);
         r
     }
 
     pub fn remove_mut(&mut self, k: &K) -> Option<V>
     where
-        K: Ord,
+        K: Ord + Clone,
+        V: Clone,
     {
         let m = unsafe { &mut *self.dirty.get() };
-        m.remove(k)
+        let r = m.remove(k);
+        if r.is_some() {
+            self.promote();
+        }
+        r
     }
 
     pub fn len(&self) -> usize {
-        unsafe { (&*self.dirty.get()).len() }
+        let g = self.lock.lock();
+        let r = unsafe { (&*self.dirty.get()).len() };
+        drop(g);
+        r
     }
 
     pub fn is_empty(&self) -> bool {
-        unsafe { (&*self.dirty.get()).is_empty() }
+        let g = self.lock.lock();
+        let r = unsafe { (&*self.dirty.get()).is_empty() };
+        drop(g);
+        r
     }
 
     pub fn clear(&self)
     where
-        K: Eq + Hash,
+        K: Eq + Hash + Clone,
+        V: Clone,
     {
         let g = self.lock.lock();
-        let m = unsafe { &mut *self.dirty.get() };
-        m.clear();
+        unsafe { (&mut *self.dirty.get()).clear() };
+        self.promote();
         drop(g);
     }
 
     pub fn clear_mut(&mut self)
     where
-        K: Eq + Hash,
+        K: Eq + Hash + Clone,
+        V: Clone,
     {
-        let m = unsafe { &mut *self.dirty.get() };
-        m.clear();
+        unsafe { (&mut *self.dirty.get()).clear() };
+        self.promote();
     }
 
     pub fn shrink_to_fit(&self) {}
@@ -142,9 +195,12 @@ where
     /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
     /// the key type.
     ///
-    /// Since reading a map is unlocked, it is very fast
+    /// Reads are lock-free: the value is served from the immutable `read`
+    /// snapshot. If the key was written to `dirty` since the last snapshot was
+    /// published, a fresh snapshot is published first and the value is served
+    /// from it, so the returned reference always points into immutable,
+    /// retained storage.
     ///
-    /// test bench_sync_hash_map_read   ... bench:           8 ns/iter (+/- 0)
     /// # Examples
     ///
     /// ```
@@ -158,33 +214,51 @@ where
     #[inline]
     pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
     where
-        K: Borrow<Q> + Ord,
+        K: Borrow<Q> + Ord + Clone,
         Q: Hash + Eq + Ord,
+        V: Clone,
     {
-        unsafe { (&*self.dirty.get()).get(k) }
+        if let Some(v) = self.read.load().get(k) {
+            return Some(v);
+        }
+        // Snapshot miss: the key may have been written to `dirty` without a
+        // snapshot refresh yet (lazy promotion). Publish a fresh snapshot and
+        // serve from it so the reference points into immutable, retained
+        // storage instead of the lock-guarded `dirty` map.
+        let g = self.lock.lock();
+        let found = unsafe { (&*self.dirty.get()).contains_key(k) };
+        if found {
+            self.promote();
+        }
+        drop(g);
+        if found {
+            self.read.load().get(k)
+        } else {
+            None
+        }
     }
 
+    /// Returns a mutable handle to the value for `k`, implemented with
+    /// copy-on-write: the value is cloned, the handle mutates the clone, and
+    /// the result is written back (and published into a fresh snapshot) when
+    /// the handle is dropped. The returned reference stays valid as long as
+    /// the handle is held; concurrent readers may observe the pre-mutation
+    /// value until the handle is dropped.
     #[inline]
     pub fn get_mut(&self, k: &K) -> Option<BtreeMapRefMut<'_, K, V>>
     where
         K: Hash + Eq + Clone + Ord,
+        V: Clone,
     {
-        let get_mut_lock = self.lock.lock();
-        let m = unsafe { &mut *self.locks.get() };
-        if m.contains_key(k) == false {
-            let g = ReentrantMutex::new(());
-            m.insert(k.clone(), g);
-        }
-        let g = m.get(k).unwrap();
-        let m = unsafe { &mut *self.dirty.get() };
-        let v = BtreeMapRefMut {
-            k: unsafe { std::mem::transmute(&k) },
+        let g = self.lock.lock();
+        let dirty = unsafe { &*self.dirty.get() };
+        let value = dirty.get(k)?.clone();
+        drop(g);
+        Some(BtreeMapRefMut {
+            k: k.clone(),
             m: self,
-            _g: g.lock(),
-            value: m.get_mut(k)?,
-        };
-        drop(get_mut_lock);
-        Some(v)
+            value: Some(value),
+        })
     }
 
     #[inline]
@@ -192,28 +266,43 @@ where
     where
         K: PartialEq + Ord,
     {
-        let m = unsafe { &mut *self.dirty.get() };
-        m.contains_key(x)
+        if self.read.load().contains_key(x) {
+            return true;
+        }
+        let g = self.lock.lock();
+        let r = unsafe { (&*self.dirty.get()).contains_key(x) };
+        drop(g);
+        r
     }
 
-    pub fn iter(&self) -> MapIter<'_, K, V> {
-        unsafe { (&*self.dirty.get()).iter() }
+    /// Iterate over the current contents. A fresh snapshot is published first,
+    /// so all entries written so far are visible.
+    pub fn iter(&self) -> MapIter<'_, K, V>
+    where
+        K: Clone,
+        V: Clone,
+    {
+        let g = self.lock.lock();
+        self.promote();
+        drop(g);
+        self.read.load().iter()
     }
 
-    pub fn iter_mut(&self) -> BtreeIterMut<'_, K, V> {
+    pub fn iter_mut(&self) -> BtreeIterMut<'_, K, V>
+    where
+        K: Clone,
+        V: Clone,
+    {
         let m = unsafe { &mut *self.dirty.get() };
-        return BtreeIterMut {
+        BtreeIterMut {
+            m: self,
             _g: self.lock.lock(),
-            inner: m.iter_mut(),
-        };
+            inner: Some(m.iter_mut()),
+        }
     }
 
     pub fn into_iter(self) -> MapIntoIter<K, V> {
         self.dirty.into_inner().into_iter()
-    }
-
-    pub fn dirty_ref(&self) -> &BTreeMap<K, V> {
-        unsafe { &*self.dirty.get() }
     }
 
     pub fn into_inner(self) -> BTreeMap<K, V> {
@@ -221,91 +310,112 @@ where
     }
 }
 
-pub struct BtreeMapRefMut<'a, K: Eq + Hash + Ord, V> {
-    k: &'a K,
+pub struct BtreeMapRefMut<'a, K: Eq + Hash + Ord + Clone, V: Clone> {
+    k: K,
     m: &'a SyncBtreeMap<K, V>,
-    _g: ReentrantMutexGuard<'a, ()>,
-    value: &'a mut V,
+    value: Option<V>,
 }
 
-impl<'a, K: Eq + Hash + Ord, V> Drop for BtreeMapRefMut<'a, K, V> {
+impl<'a, K: Clone + Eq + Hash + Ord, V: Clone> Drop for BtreeMapRefMut<'a, K, V> {
     fn drop(&mut self) {
-        let m = unsafe { &mut *self.m.locks.get() };
-        _ = m.remove(self.k);
+        if let Some(v) = self.value.take() {
+            let g = self.m.lock.lock();
+            let dirty = unsafe { &mut *self.m.dirty.get() };
+            match dirty.get_mut(&self.k) {
+                Some(slot) => *slot = v,
+                // The key was removed while the handle was held: keep the
+                // mutation by re-inserting it.
+                None => {
+                    dirty.insert(self.k.clone(), v);
+                }
+            }
+            self.m.promote();
+            drop(g);
+        }
     }
 }
 
-impl<'a, K: Eq + Hash + Ord, V> Deref for BtreeMapRefMut<'_, K, V> {
+impl<'a, K: Eq + Hash + Ord + Clone, V: Clone> Deref for BtreeMapRefMut<'_, K, V> {
     type Target = V;
 
     fn deref(&self) -> &Self::Target {
-        self.value
+        self.value.as_ref().unwrap()
     }
 }
 
-impl<'a, K: Eq + Hash + Ord, V> DerefMut for BtreeMapRefMut<'_, K, V> {
+impl<'a, K: Eq + Hash + Ord + Clone, V: Clone> DerefMut for BtreeMapRefMut<'_, K, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.value
+        self.value.as_mut().unwrap()
     }
 }
 
-impl<'a, K: Eq + Hash + Ord, V> Debug for BtreeMapRefMut<'_, K, V>
+impl<'a, K: Eq + Hash + Ord + Clone, V: Clone> Debug for BtreeMapRefMut<'_, K, V>
 where
     V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.value.fmt(f)
+        self.value.as_ref().unwrap().fmt(f)
     }
 }
 
-impl<'a, K: Eq + Hash + Ord, V> Display for BtreeMapRefMut<'_, K, V>
+impl<'a, K: Eq + Hash + Ord + Clone, V: Clone> Display for BtreeMapRefMut<'_, K, V>
 where
     V: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.value.fmt(f)
+        self.value.as_ref().unwrap().fmt(f)
     }
 }
 
-impl<'a, K: Eq + Hash + Ord, V> PartialEq<Self> for BtreeMapRefMut<'_, K, V>
+impl<'a, K: Eq + Hash + Ord + Clone, V: Clone> PartialEq<Self> for BtreeMapRefMut<'_, K, V>
 where
     V: Eq,
 {
     fn eq(&self, other: &Self) -> bool {
-        self.value.eq(&other.value)
+        self.value.as_ref().unwrap().eq(&other.value.as_ref().unwrap())
     }
 }
 
-impl<'a, K: Eq + Hash + Ord, V> Eq for BtreeMapRefMut<'_, K, V> where V: Eq {}
+impl<'a, K: Eq + Hash + Ord + Clone, V: Clone> Eq for BtreeMapRefMut<'_, K, V> where V: Eq {}
 
-pub struct BtreeIterMut<'a, K, V> {
-    _g: ReentrantMutexGuard<'a, ()>,
-    inner: std::collections::btree_map::IterMut<'a, K, V>,
+pub struct BtreeIterMut<'a, K: Eq + Hash + Clone, V: Clone> {
+    m: &'a SyncBtreeMap<K, V>,
+    _g: SyncLockGuard<'a>,
+    inner: Option<std::collections::btree_map::IterMut<'a, K, V>>,
 }
 
-impl<'a, K, V> Deref for BtreeIterMut<'a, K, V> {
+impl<'a, K: Eq + Hash + Clone, V: Clone> Drop for BtreeIterMut<'a, K, V> {
+    fn drop(&mut self) {
+        // Drop the `&mut` borrows into `dirty` first, then publish the
+        // mutations into a fresh snapshot. The lock (`_g`) is still held.
+        self.inner.take();
+        self.m.promote();
+    }
+}
+
+impl<'a, K: Eq + Hash + Clone, V: Clone> Deref for BtreeIterMut<'a, K, V> {
     type Target = std::collections::btree_map::IterMut<'a, K, V>;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.inner.as_ref().unwrap()
     }
 }
 
-impl<'a, K, V> DerefMut for BtreeIterMut<'a, K, V> {
+impl<'a, K: Eq + Hash + Clone, V: Clone> DerefMut for BtreeIterMut<'a, K, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
+        self.inner.as_mut().unwrap()
     }
 }
 
-impl<'a, K, V> Iterator for BtreeIterMut<'a, K, V> {
+impl<'a, K: Eq + Hash + Clone, V: Clone> Iterator for BtreeIterMut<'a, K, V> {
     type Item = (&'a K, &'a mut V);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
+        self.inner.as_mut().unwrap().next()
     }
 }
 
-impl<'a, K: Eq + Hash, V> IntoIterator for &'a SyncBtreeMap<K, V> {
+impl<'a, K: Eq + Hash + Clone, V: Clone> IntoIterator for &'a SyncBtreeMap<K, V> {
     type Item = (&'a K, &'a V);
     type IntoIter = MapIter<'a, K, V>;
 
@@ -338,7 +448,10 @@ where
     where
         S: Serializer,
     {
-        self.dirty_ref().serialize(serializer)
+        let g = self.lock.lock();
+        let r = unsafe { (&*self.dirty.get()).serialize(serializer) };
+        drop(g);
+        r
     }
 }
 
@@ -362,7 +475,10 @@ where
     V: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.dirty_ref().fmt(f)
+        let g = self.lock.lock();
+        let r = unsafe { (&*self.dirty.get()).fmt(f) };
+        drop(g);
+        r
     }
 }
 
@@ -373,7 +489,10 @@ where
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use std::fmt::Pointer;
-        self.dirty_ref().fmt(f)
+        let g = self.lock.lock();
+        let r = unsafe { (&*self.dirty.get()).fmt(f) };
+        drop(g);
+        r
     }
 }
 
@@ -394,7 +513,9 @@ impl<'a, K, V> Iterator for BtreeIter<'a, K, V> {
 
 impl<K: Clone + Eq + Hash, V: Clone> Clone for SyncBtreeMap<K, V> {
     fn clone(&self) -> Self {
-        let c = (*self.dirty_ref()).clone();
+        let g = self.lock.lock();
+        let c = unsafe { (&*self.dirty.get()).clone() };
+        drop(g);
         SyncBtreeMap::from(c)
     }
 }
@@ -404,3 +525,5 @@ impl<K: Eq + Hash, V> Default for SyncBtreeMap<K, V> {
         SyncBtreeMap::new()
     }
 }
+
+

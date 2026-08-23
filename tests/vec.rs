@@ -1,4 +1,4 @@
-use dark_std::sync::SyncVec;
+﻿use dark_std::sync::SyncVec;
 use dark_std::sync_vec;
 use std::sync::Arc;
 use std::thread::sleep;
@@ -52,6 +52,7 @@ pub fn test_get_mut() {
     let mut m0 = m.get_mut(0).unwrap();
     *m0 = 1;
     println!("{}", *m0);
+    drop(m0);
     let g = m.get(0).unwrap();
     assert_eq!(&1, g);
 }
@@ -77,7 +78,6 @@ pub fn test_remove() {
     println!("rm:{:?}", rm);
     drop(rm);
     assert_eq!(true, m.is_empty());
-    assert_eq!(true, m.dirty_ref().is_empty());
     assert_eq!(None, m.get(0));
     assert_eq!(&A { inner: 0 }, g);
 }
@@ -140,5 +140,5 @@ pub fn test_macro2() {
 #[test]
 pub fn test_macro3() {
     let v = sync_vec![1;2];
-    assert_eq!(v.dirty_ref(), &vec![1; 2]);
+    assert_eq!(v.iter().copied().collect::<Vec<_>>(), vec![1; 2]);
 }

@@ -1,6 +1,8 @@
-pub mod map_btree;
+﻿pub mod map_btree;
 pub mod map_hash;
 pub mod map_index;
+mod lock;
+mod snapshot;
 pub mod vec;
 pub mod wg;
 

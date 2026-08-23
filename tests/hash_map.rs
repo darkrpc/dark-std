@@ -1,4 +1,4 @@
-use dark_std::sync::SyncHashMap;
+﻿use dark_std::sync::SyncHashMap;
 
 use std::sync::Arc;
 use std::thread::sleep;
@@ -101,6 +101,7 @@ pub fn test_get_mut() {
     m.insert(1, 2);
     let mut r = m.get_mut(&1).unwrap();
     *r = 0;
+    drop(r);
     let g = m.get(&1).unwrap();
     assert_eq!(&0, g);
 }
@@ -126,7 +127,6 @@ pub fn test_remove() {
     println!("rm:{:?}", rm);
     drop(rm);
     assert_eq!(true, m.is_empty());
-    assert_eq!(true, m.dirty_ref().is_empty());
     assert_eq!(None, m.get(&1));
     assert_eq!(&A { inner: 0 }, g);
 }
@@ -235,3 +235,4 @@ pub fn test_get_mut_not_eq_key() {
 //     }
 //     wait1.wait();
 // }
+

@@ -1,4 +1,4 @@
-use dark_std::sync::SyncBtreeMap;
+﻿use dark_std::sync::SyncBtreeMap;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -64,6 +64,7 @@ pub fn test_get_mut() {
     m.insert(1, 2);
     let mut r = m.get_mut(&1).unwrap();
     *r = 0;
+    drop(r);
     let g = m.get(&1).unwrap();
     assert_eq!(&0, g);
 }
@@ -98,3 +99,4 @@ pub fn test_get_mut_not_eq_key() {
     let v2 = m.get_mut(&2).unwrap();
     assert_eq!(*v1 + 1, *v2);
 }
+
