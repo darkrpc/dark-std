@@ -40,11 +40,13 @@ unsafe impl<K: Eq + Hash, V> Sync for SyncIndexMap<K, V> {}
 impl<K, V> std::ops::Index<&K> for SyncIndexMap<K, V>
 where
     K: Eq + Hash,
+    K: Clone,
+    V: Clone,
 {
     type Output = V;
 
     fn index(&self, index: &K) -> &Self::Output {
-        &self.read.load()[index]
+        self.get(index).expect("key not found")
     }
 }
 
@@ -554,5 +556,24 @@ impl<K: Eq + Hash, V> Default for SyncIndexMap<K, V> {
 }
 
 
+// `Index<&K>` access, kept for pre-0.2.17 API compatibility.
+#[test]
+pub fn test_index() {
+    let m = SyncIndexMap::<i32, i32>::new();
+    m.insert(1, 10);
+    m.insert(2, 20);
+    assert_eq!(m[&1], 10);
+    assert_eq!(m[&2], 20);
+}
+
+// `iter_mut` must deref to the inner map iterator (pre-0.2.17 API).
+#[test]
+pub fn test_iter_mut_deref() {
+    let m = SyncIndexMap::<i32, i32>::new();
+    m.insert(1, 10);
+    m.insert(2, 20);
+    let it = m.iter_mut();
+    assert_eq!(it.len(), 2); // via Deref to the inner iterator
+}
 
 

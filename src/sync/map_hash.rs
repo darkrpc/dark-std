@@ -41,11 +41,13 @@ unsafe impl<K: Eq + Hash, V> Sync for SyncHashMap<K, V> {}
 impl<K, V> std::ops::Index<&K> for SyncHashMap<K, V>
 where
     K: Eq + Hash,
+    K: Clone,
+    V: Clone,
 {
     type Output = V;
 
     fn index(&self, index: &K) -> &Self::Output {
-        &self.read.load()[index]
+        self.get(index).expect("key not found")
     }
 }
 

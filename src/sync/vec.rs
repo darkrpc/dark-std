@@ -538,7 +538,7 @@ impl<V: Clone> Index<usize> for SyncVec<V> {
     type Output = V;
 
     fn index(&self, index: usize) -> &Self::Output {
-        self.get(index).expect("Out of bounds access")
+        self.get(index).expect("index out of bounds")
     }
 }
 

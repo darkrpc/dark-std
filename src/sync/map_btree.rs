@@ -38,11 +38,13 @@ unsafe impl<K: Eq + Hash, V> Sync for SyncBtreeMap<K, V> {}
 impl<K, V> std::ops::Index<&K> for SyncBtreeMap<K, V>
 where
     K: Eq + Hash + Ord,
+    K: Clone,
+    V: Clone,
 {
     type Output = V;
 
     fn index(&self, index: &K) -> &Self::Output {
-        &self.read.load()[index]
+        self.get(index).expect("key not found")
     }
 }
 

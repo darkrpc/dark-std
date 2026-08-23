@@ -1,4 +1,4 @@
-﻿use dark_std::sync::SyncIndexMap;
+use dark_std::sync::SyncIndexMap;
 
 use std::sync::Arc;
 use std::thread::sleep;
@@ -35,6 +35,16 @@ pub fn test_insert2() {
     assert_eq!(&"1".to_string(), m.get("/").unwrap());
     assert_eq!(&"2".to_string(), m.get("/js").unwrap());
     assert_eq!(&"3".to_string(), m.get("/fn").unwrap());
+}
+
+// `Index<&K>` access, kept for pre-0.2.17 API compatibility.
+#[test]
+pub fn test_index() {
+    let m = SyncIndexMap::<i32, i32>::new();
+    m.insert(1, 10);
+    m.insert(2, 20);
+    assert_eq!(m[&1], 10);
+    assert_eq!(m[&2], 20);
 }
 
 // #[test]
