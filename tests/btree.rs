@@ -1,5 +1,4 @@
 ﻿use dark_std::sync::SyncBtreeMap;
-use std::ops::Deref;
 use std::sync::Arc;
 
 #[test]
@@ -55,7 +54,7 @@ pub fn test_get() {
     let m = SyncBtreeMap::<i32, i32>::new();
     m.insert(1, 2);
     let g = m.get(&1).unwrap();
-    assert_eq!(2, *g.deref());
+    assert_eq!(2, *g);
 }
 
 #[test]
