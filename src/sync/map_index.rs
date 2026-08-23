@@ -1,7 +1,7 @@
-use indexmap::map::{
+﻿use indexmap::map::{
     IndexMap as Map, IntoIter as MapIntoIter, Iter as MapIter, IterMut as MapIterMut,
 };
-use super::lock::{SyncLock, SyncLockGuard};
+use crate::lock::{SyncLock, SyncLockGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
@@ -575,5 +575,6 @@ pub fn test_iter_mut_deref() {
     let it = m.iter_mut();
     assert_eq!(it.len(), 2); // via Deref to the inner iterator
 }
+
 
 

@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "dark-std"
 version = "0.2.21"
 edition = "2021"
@@ -10,11 +10,20 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
+# Lock backend for the sync containers — exactly one must be selected.
+#
+# `parking-lot` (default): `parking_lot::Mutex`, the fastest mutex.
+# `std-lock`: `std::sync::Mutex`, which Miri supports on every platform
+# (including Windows), so race/UB tests can run under Miri on Windows with
+# `--no-default-features --features std-lock`.
+default = ["parking-lot"]
+parking-lot = ["dep:parking_lot"]
+std-lock = []
 
 [dependencies]
 serde = "1.0"
 flume = {version="0.11",default-features = false,features = ["async"]}
-parking_lot = "0.12"
+parking_lot = { version = "0.12", optional = true }
 indexmap = {version = "2.2.5",features = ["serde"]}
 
 

@@ -1,6 +1,12 @@
 # dark-std
 dark-std is an Implementation of asynchronous
 
+The sync containers (`SyncHashMap`, `SyncBtreeMap`, `SyncIndexMap`, `SyncVec`) use a Go
+`sync.Map`-style **read/dirty + atomic snapshot** architecture: reads are lock-free and
+served from an immutable, atomically published snapshot, while writes go to a `dirty` map
+under a lock and are lazily published into a fresh snapshot — a **read-fast, write-slow**
+design optimized for many readers, few writers.
+
 * defer!          (defer macro)
 * SyncHashMap     (async HashMap)
 * SyncBtreeMap    (async BtreeMap)

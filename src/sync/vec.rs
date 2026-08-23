@@ -1,4 +1,4 @@
-use super::lock::{SyncLock, SyncLockGuard};
+﻿use crate::lock::{SyncLock, SyncLockGuard};
 use serde::{Deserializer, Serialize, Serializer};
 use std::cell::UnsafeCell;
 use std::fmt::{Debug, Display, Formatter};
@@ -586,5 +586,6 @@ macro_rules! sync_vec {
         $crate::sync::SyncVec::with_vec(vec![$($x),+,])
     );
 }
+
 
 
