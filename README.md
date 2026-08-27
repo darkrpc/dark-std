@@ -14,6 +14,17 @@ design optimized for many readers, few writers.
 * WaitGroup       (async/blocking all support WaitGroup)
 * AtomicDuration  (atomic duration)
 
+The containers do **not** require `V: Clone`. Because `get` hands out
+references that stay valid until the container is dropped, the APIs that
+return an owned value out of the container (`insert` / `remove` / `pop`,
+and the copy-on-write `get_mut` / `iter_mut`) need `V: Clone`; use the
+non-`Clone` variants when the value is not `Clone` and the old value is not
+needed:
+
+* `SyncHashMap` / `SyncBtreeMap` / `SyncIndexMap`:
+  [`set(k, v)`] and [`delete(k)`] instead of `insert` / `remove`.
+* `SyncVec`: [`pop_discard()`] and [`remove_discard(i)`] instead of `pop` / `remove`.
+
 for example:
 ```rust
     #[tokio::test]

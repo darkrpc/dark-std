@@ -106,6 +106,12 @@ where
         self.amended.store(false, Ordering::Release);
     }
 
+    /// Insert or replace the value for `k`, returning the previous value if
+    /// the key already existed.
+    ///
+    /// This requires `V: Clone` because the previous value must stay alive
+    /// for concurrent readers. Use [`set`](Self::set) when the value is not
+    /// `Clone` and the previous value is not needed.
     pub fn insert(&self, k: K, v: V) -> Option<V>
     where
         K: Ord + Clone,
@@ -137,6 +143,42 @@ where
         self.insert(k, v)
     }
 
+    /// Insert or overwrite the value for `k` without returning the previous
+    /// one. Unlike [`insert`](Self::insert) this does **not** require
+    /// `V: Clone`, so it works with non-`Clone` values. Updating an existing
+    /// key swaps the value in place (O(1)); readers observe the new value
+    /// immediately.
+    pub fn set(&self, k: K, v: V)
+    where
+        K: Ord,
+    {
+        let g = self.lock.lock();
+        let m = unsafe { &mut *self.dirty.get() };
+        if let Some(entry) = m.get(&k) {
+            // Update: swap the value in place (O(1)). The shared entry lets
+            // readers observe the new value without a snapshot rebuild.
+            let old = entry.swap(v);
+            self.retired.push(old);
+        } else {
+            // New key: leave it for lazy promotion and mark `amended`.
+            m.insert(k, Arc::new(Entry::new(v)));
+            self.amended.store(true, Ordering::Release);
+        }
+        drop(g);
+    }
+
+    pub fn set_mut(&mut self, k: K, v: V)
+    where
+        K: Ord,
+    {
+        self.set(k, v)
+    }
+
+    /// Remove `k` and return its value.
+    ///
+    /// This requires `V: Clone` because the removed value must stay alive
+    /// for concurrent readers. Use [`delete`](Self::delete) when the value is
+    /// not `Clone` and the removed value is not needed.
     pub fn remove(&self, k: &K) -> Option<V>
     where
         K: Ord + Clone,
@@ -163,6 +205,29 @@ where
         V: Clone,
     {
         self.remove(k)
+    }
+
+    /// Remove `k` without returning its value. Unlike
+    /// [`remove`](Self::remove) this does **not** require `V: Clone`, so it
+    /// works with non-`Clone` values.
+    pub fn delete(&self, k: &K)
+    where
+        K: Ord + Clone,
+    {
+        let g = self.lock.lock();
+        let m = unsafe { &mut *self.dirty.get() };
+        if m.remove(k).is_some() {
+            // Refresh the snapshot so `get` no longer serves the removed key.
+            self.promote();
+        }
+        drop(g);
+    }
+
+    pub fn delete_mut(&mut self, k: &K)
+    where
+        K: Ord + Clone,
+    {
+        self.delete(k)
     }
 
     pub fn len(&self) -> usize {

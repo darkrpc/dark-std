@@ -137,6 +137,11 @@ impl<V> SyncVec<V> {
         None
     }
 
+    /// Remove and return the last element.
+    ///
+    /// This requires `V: Clone` because the removed value must stay alive
+    /// for concurrent readers. Use [`pop_discard`](Self::pop_discard) when
+    /// the value is not `Clone` and the removed value is not needed.
     pub fn pop(&self) -> Option<V>
     where
         V: Clone,
@@ -164,6 +169,29 @@ impl<V> SyncVec<V> {
         r
     }
 
+    /// Remove and discard the last element without returning it. Unlike
+    /// [`pop`](Self::pop) this does **not** require `V: Clone`, so it works
+    /// with non-`Clone` values.
+    pub fn pop_discard(&self) {
+        let g = self.lock.lock();
+        let m = unsafe { &mut *self.dirty.get() };
+        if m.pop().is_some() {
+            // Refresh the snapshot so `get` no longer serves the popped slot.
+            self.promote();
+        }
+        drop(g);
+    }
+
+    pub fn pop_discard_mut(&mut self) {
+        self.pop_discard()
+    }
+
+    /// Remove and return the element at `index`.
+    ///
+    /// This requires `V: Clone` because the removed value must stay alive
+    /// for concurrent readers. Use
+    /// [`remove_discard`](Self::remove_discard) when the value is not `Clone`
+    /// and the removed value is not needed.
     pub fn remove(&self, index: usize) -> Option<V>
     where
         V: Clone,
@@ -196,6 +224,24 @@ impl<V> SyncVec<V> {
         } else {
             None
         }
+    }
+
+    /// Remove and discard the element at `index` without returning it. Unlike
+    /// [`remove`](Self::remove) this does **not** require `V: Clone`, so it
+    /// works with non-`Clone` values.
+    pub fn remove_discard(&self, index: usize) {
+        let g = self.lock.lock();
+        let m = unsafe { &mut *self.dirty.get() };
+        if m.len() > index {
+            m.remove(index);
+            // Removing shifts indices, so the snapshot must be refreshed.
+            self.promote();
+        }
+        drop(g);
+    }
+
+    pub fn remove_discard_mut(&mut self, index: usize) {
+        self.remove_discard(index)
     }
 
     pub fn len(&self) -> usize {
