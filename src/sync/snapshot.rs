@@ -78,6 +78,14 @@ impl<T> AtomicSnapshot<T> {
             drop(Box::from_raw(current));
         }
     }
+
+    /// Test-only: how many retired snapshots are still kept alive. Each
+    /// unnecessary `publish` grows this list, so tests use it to prove that
+    /// read-only paths do not leak snapshot allocations.
+    #[cfg(test)]
+    pub(crate) fn retired_len(&self) -> usize {
+        unsafe { (*self.retired.get()).len() }
+    }
 }
 
 impl<T> Drop for AtomicSnapshot<T> {

@@ -255,8 +255,17 @@ where
         K: Eq + Hash + Clone,
     {
         let g = self.lock.lock();
-        unsafe { (&mut *self.dirty.get()).clear() };
-        self.promote();
+        let had_entries = {
+            let m = unsafe { &mut *self.dirty.get() };
+            let had_entries = !m.is_empty();
+            m.clear();
+            had_entries
+        };
+        // Clearing an already-empty map changes nothing, so publishing a
+        // snapshot here would only retire the current one for no reason.
+        if had_entries {
+            self.promote();
+        }
         drop(g);
     }
 
@@ -370,15 +379,19 @@ where
         r
     }
 
-    /// Iterate over the current contents. A fresh snapshot is published first,
-    /// so all entries written so far are visible.
+    /// Iterate over the current contents. If dirty has un-published writes, a
+    /// fresh snapshot is published first; otherwise the current snapshot is
+    /// reused lock-free to avoid leaking retired snapshot allocations on every
+    /// call.
     pub fn iter(&self) -> Iter<'_, K, V>
     where
         K: Clone,
     {
-        let g = self.lock.lock();
-        self.promote();
-        drop(g);
+        if self.amended.load(Ordering::Acquire) {
+            let g = self.lock.lock();
+            self.promote();
+            drop(g);
+        }
         Iter {
             inner: self.read.load().iter(),
         }
@@ -394,6 +407,7 @@ where
             m: self,
             _g: self.lock.lock(),
             inner: Some(m.iter_mut()),
+            visited: false,
         }
     }
 
@@ -444,6 +458,7 @@ pub struct IterMut<'a, K: Eq + Hash + Clone, V: Clone> {
     m: &'a SyncBtreeMap<K, V>,
     _g: SyncLockGuard<'a>,
     inner: Option<MapIterMut<'a, K, Arc<Entry<V>>>>,
+    visited: bool,
 }
 
 impl<'a, K: Eq + Hash + Clone, V: Clone> Drop for IterMut<'a, K, V> {
@@ -451,7 +466,11 @@ impl<'a, K: Eq + Hash + Clone, V: Clone> Drop for IterMut<'a, K, V> {
         // Drop the `&mut` borrows into `dirty` first, then publish the
         // mutations into a fresh snapshot. The lock (`_g`) is still held.
         self.inner.take();
-        self.m.promote();
+        // Only a handed-out `&mut V` can have changed anything; dropping an
+        // untouched iterator must not retire a snapshot.
+        if self.visited {
+            self.m.promote();
+        }
     }
 }
 
@@ -460,6 +479,7 @@ impl<'a, K: Eq + Hash + Clone, V: Clone> Iterator for IterMut<'a, K, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let (k, entry) = self.inner.as_mut().unwrap().next()?;
+        self.visited = true;
         // Make the entry uniquely owned so we can hand out `&mut V`.
         if Arc::get_mut(entry).is_none() {
             let current = entry.load().clone();
@@ -669,5 +689,70 @@ impl<K: Clone + Eq + Hash + Ord, V: Clone> Clone for SyncBtreeMap<K, V> {
 impl<K: Eq + Hash, V> Default for SyncBtreeMap<K, V> {
     fn default() -> Self {
         SyncBtreeMap::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample() -> SyncBtreeMap<i32, i32> {
+        let mut map = BTreeMap::new();
+        map.insert(1, 1);
+        map.insert(2, 2);
+        SyncBtreeMap::with_map(map)
+    }
+
+    #[test]
+    fn repeated_iter_does_not_retire_snapshots() {
+        let m = sample();
+        // The first call publishes the writes made by `with_map`.
+        assert_eq!(m.iter().count(), 2);
+        let retired = m.read.retired_len();
+        for _ in 0..16 {
+            assert_eq!(m.iter().count(), 2);
+        }
+        assert_eq!(m.read.retired_len(), retired);
+    }
+
+    #[test]
+    fn iter_still_sees_pending_inserts() {
+        let m = SyncBtreeMap::new();
+        m.set(2, 2);
+        m.set(1, 1);
+        let got: Vec<(i32, i32)> = m.iter().map(|(k, v)| (*k, *v)).collect();
+        assert_eq!(got, vec![(1, 1), (2, 2)]);
+    }
+
+    #[test]
+    fn repeated_clear_on_empty_does_not_retire_snapshots() {
+        let m: SyncBtreeMap<i32, i32> = SyncBtreeMap::new();
+        m.clear();
+        let retired = m.read.retired_len();
+        for _ in 0..16 {
+            m.clear();
+        }
+        assert_eq!(m.read.retired_len(), retired);
+    }
+
+    #[test]
+    fn dropped_unused_iter_mut_does_not_retire_snapshots() {
+        let m = sample();
+        assert_eq!(m.iter().count(), 2);
+        let retired = m.read.retired_len();
+        for _ in 0..16 {
+            drop(m.iter_mut());
+        }
+        assert_eq!(m.read.retired_len(), retired);
+    }
+
+    #[test]
+    fn iter_mut_publishes_mutations() {
+        let m = sample();
+        for (_, v) in m.iter_mut() {
+            *v *= 10;
+        }
+        assert_eq!(*m.get(&1).unwrap(), 10);
+        assert_eq!(m.iter().map(|(_, v)| *v).sum::<i32>(), 30);
     }
 }

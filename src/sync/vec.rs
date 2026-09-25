@@ -266,8 +266,17 @@ impl<V> SyncVec<V> {
 
     pub fn clear(&self) {
         let g = self.lock.lock();
-        unsafe { (&mut *self.dirty.get()).clear() };
-        self.promote();
+        let had_entries = {
+            let m = unsafe { &mut *self.dirty.get() };
+            let had_entries = !m.is_empty();
+            m.clear();
+            had_entries
+        };
+        // Clearing an already-empty vec changes nothing, so publishing a
+        // snapshot here would only retire the current one for no reason.
+        if had_entries {
+            self.promote();
+        }
         drop(g);
     }
 
@@ -314,11 +323,27 @@ impl<V> SyncVec<V> {
         }
     }
 
+    /// Returns a reference to the element at `index` without checking bounds.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that `index` is in bounds.
     #[inline]
     pub unsafe fn get_uncheck(&self, index: usize) -> &V {
-        let g = self.lock.lock();
-        self.promote();
-        drop(g);
+        if let Some(entry) = self.read.load().get(index) {
+            return entry.load();
+        }
+        // Snapshot miss: the element may have been appended to `dirty` without
+        // a snapshot refresh yet (lazy promotion). Publish a fresh snapshot and
+        // serve from it; when nothing is pending the snapshot already mirrors
+        // `dirty`, so no promotion (and no retired allocation) is needed.
+        if self.amended.load(Ordering::Acquire) {
+            let g = self.lock.lock();
+            if unsafe { (&*self.dirty.get()).len() > index } {
+                self.promote();
+            }
+            drop(g);
+        }
         unsafe { self.read.load().get_unchecked(index).load() }
     }
 
@@ -383,6 +408,7 @@ impl<V> SyncVec<V> {
             m: self,
             _g: self.lock.lock(),
             inner: Some(m.iter_mut()),
+            visited: false,
         }
     }
 
@@ -478,6 +504,7 @@ pub struct IterMut<'a, V: Clone> {
     m: &'a SyncVec<V>,
     _g: SyncLockGuard<'a>,
     inner: Option<SliceIterMut<'a, Arc<Entry<V>>>>,
+    visited: bool,
 }
 
 impl<'a, V: Clone> Drop for IterMut<'a, V> {
@@ -485,7 +512,11 @@ impl<'a, V: Clone> Drop for IterMut<'a, V> {
         // Drop the `&mut` borrows into `dirty` first, then publish the
         // mutations into a fresh snapshot. The lock (`_g`) is still held.
         self.inner.take();
-        self.m.promote();
+        // Only a handed-out `&mut V` can have changed anything; dropping an
+        // untouched iterator must not retire a snapshot.
+        if self.visited {
+            self.m.promote();
+        }
     }
 }
 
@@ -494,6 +525,7 @@ impl<'a, V: Clone> Iterator for IterMut<'a, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let entry = self.inner.as_mut().unwrap().next()?;
+        self.visited = true;
         // Make the entry uniquely owned so we can hand out `&mut V`.
         if Arc::get_mut(entry).is_none() {
             let current = entry.load().clone();
@@ -637,4 +669,84 @@ macro_rules! sync_vec {
     ($($x:expr),+ $(,)?) => (
         $crate::sync::SyncVec::with_vec(vec![$($x),+,])
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeated_iter_does_not_retire_snapshots() {
+        let v = SyncVec::with_vec(vec![1, 2, 3]);
+        // The first call publishes the writes made by `with_vec`.
+        assert_eq!(v.iter().count(), 3);
+        let retired = v.read.retired_len();
+        for _ in 0..16 {
+            assert_eq!(v.iter().count(), 3);
+        }
+        assert_eq!(v.read.retired_len(), retired);
+    }
+
+    #[test]
+    fn iter_still_sees_pending_appends() {
+        let v: SyncVec<i32> = SyncVec::new();
+        v.push(1);
+        v.push(2);
+        assert_eq!(v.iter().map(|x| *x).collect::<Vec<_>>(), vec![1, 2]);
+    }
+
+    #[test]
+    fn repeated_clear_on_empty_does_not_retire_snapshots() {
+        let v: SyncVec<i32> = SyncVec::new();
+        v.clear();
+        let retired = v.read.retired_len();
+        for _ in 0..16 {
+            v.clear();
+        }
+        assert_eq!(v.read.retired_len(), retired);
+    }
+
+    #[test]
+    fn dropped_unused_iter_mut_does_not_retire_snapshots() {
+        let v = SyncVec::with_vec(vec![1, 2, 3]);
+        assert_eq!(v.iter().count(), 3);
+        let retired = v.read.retired_len();
+        for _ in 0..16 {
+            drop(v.iter_mut());
+        }
+        assert_eq!(v.read.retired_len(), retired);
+    }
+
+    #[test]
+    fn iter_mut_publishes_mutations() {
+        let v = SyncVec::with_vec(vec![1, 2, 3]);
+        for x in v.iter_mut() {
+            *x *= 10;
+        }
+        assert_eq!(v.iter().map(|x| *x).collect::<Vec<_>>(), vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn get_uncheck_does_not_retire_snapshots_when_unchanged() {
+        let v = SyncVec::with_vec(vec![1, 2, 3]);
+        unsafe {
+            assert_eq!(*v.get_uncheck(0), 1);
+        }
+        let retired = v.read.retired_len();
+        for _ in 0..16 {
+            unsafe {
+                assert_eq!(*v.get_uncheck(0), 1);
+            }
+        }
+        assert_eq!(v.read.retired_len(), retired);
+    }
+
+    #[test]
+    fn get_uncheck_sees_pending_appends() {
+        let v: SyncVec<i32> = SyncVec::new();
+        v.push(7);
+        unsafe {
+            assert_eq!(*v.get_uncheck(0), 7);
+        }
+    }
 }
