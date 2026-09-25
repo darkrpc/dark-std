@@ -360,12 +360,15 @@ impl<V> SyncVec<V> {
         r
     }
 
-    /// Iterate over the current contents. A fresh snapshot is published first,
-    /// so all elements written so far are visible.
+    /// Iterate over the current contents. If dirty has un-published writes, a
+    /// fresh snapshot is published first; otherwise the current snapshot is
+    /// reused lock-free to avoid leaking retired Box allocations on every call.
     pub fn iter(&self) -> Iter<'_, V> {
-        let g = self.lock.lock();
-        self.promote();
-        drop(g);
+        if self.amended.load(Ordering::Acquire) {
+            let g = self.lock.lock();
+            self.promote();
+            drop(g);
+        }
         Iter {
             inner: self.read.load().iter(),
         }
