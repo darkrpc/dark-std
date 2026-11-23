@@ -16,10 +16,11 @@ design optimized for many readers, few writers.
 
 The containers do **not** require `V: Clone`. Because `get` hands out
 references that stay valid until the container is dropped, the APIs that
-return an owned value out of the container (`insert` / `remove` / `pop`,
-and the copy-on-write `get_mut` / `iter_mut`) need `V: Clone`; use the
+return an owned value out of the container (`insert` / `remove` / `pop`)
+and the mutable accessors (`get_mut` / `iter_mut`) need `V: Clone`; use the
 non-`Clone` variants when the value is not `Clone` and the old value is not
-needed:
+needed. `iter_mut` additionally takes `&mut self`, so its yielded values
+cannot escape into concurrent access through the same container:
 
 * `SyncHashMap` / `SyncBtreeMap` / `SyncIndexMap`:
   [`set(k, v)`] and [`delete(k)`] instead of `insert` / `remove`.

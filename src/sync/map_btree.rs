@@ -397,15 +397,31 @@ where
         }
     }
 
-    pub fn iter_mut(&self) -> IterMut<'_, K, V>
+    /// Iterate mutably over the current contents.
+    ///
+    /// The iterator takes exclusive access to the map. A value yielded by it
+    /// may outlive the iterator, but cannot outlive the exclusive map borrow:
+    ///
+    /// ```compile_fail
+    /// use dark_std::sync::SyncBtreeMap;
+    ///
+    /// let mut m = SyncBtreeMap::new();
+    /// m.set(1, String::from("old"));
+    /// let value = m.iter_mut().next().unwrap().1;
+    /// let alias = m.get(&1).unwrap();
+    /// value.clear();
+    /// println!("{alias}");
+    /// ```
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V>
     where
         K: Clone,
         V: Clone,
     {
-        let m = unsafe { &mut *self.dirty.get() };
+        let this: &Self = self;
+        let m = unsafe { &mut *this.dirty.get() };
         IterMut {
-            m: self,
-            _g: self.lock.lock(),
+            m: this,
+            _g: this.lock.lock(),
             inner: Some(m.iter_mut()),
             visited: false,
         }
@@ -737,7 +753,7 @@ mod tests {
 
     #[test]
     fn dropped_unused_iter_mut_does_not_retire_snapshots() {
-        let m = sample();
+        let mut m = sample();
         assert_eq!(m.iter().count(), 2);
         let retired = m.read.retired_len();
         for _ in 0..16 {
@@ -748,7 +764,7 @@ mod tests {
 
     #[test]
     fn iter_mut_publishes_mutations() {
-        let m = sample();
+        let mut m = sample();
         for (_, v) in m.iter_mut() {
             *v *= 10;
         }

@@ -80,7 +80,7 @@ pub fn test_iter() {
 
 #[test]
 pub fn test_iter_mut() {
-    let m = SyncBtreeMap::<i32, i32>::new();
+    let mut m = SyncBtreeMap::<i32, i32>::new();
     m.insert(1, 2);
     for (k, v) in m.iter_mut() {
         assert_eq!(*k, 1);
@@ -113,7 +113,7 @@ pub fn test_index() {
 // `iter_mut` must deref to the inner map iterator (pre-0.2.17 API).
 #[test]
 pub fn test_iter_mut_deref() {
-    let m = SyncBtreeMap::<i32, i32>::new();
+    let mut m = SyncBtreeMap::<i32, i32>::new();
     m.insert(1, 10);
     m.insert(2, 20);
     let it = m.iter_mut();

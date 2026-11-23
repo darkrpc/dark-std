@@ -116,7 +116,7 @@ pub fn test_iter() {
 
 #[test]
 pub fn test_iter_mut() {
-    let m = SyncVec::<i32>::new();
+    let mut m = SyncVec::<i32>::new();
     m.push(2);
     for v in m.iter_mut() {
         assert_eq!(*v, 2);
@@ -176,7 +176,7 @@ pub fn test_get_uncheck() {
 // `iter_mut` must deref to `std::slice::IterMut` (pre-0.2.17 API).
 #[test]
 pub fn test_iter_mut_deref() {
-    let v = SyncVec::new();
+    let mut v = SyncVec::new();
     v.push(1);
     v.push(2);
     v.push(3);

@@ -399,14 +399,29 @@ impl<V> SyncVec<V> {
         }
     }
 
-    pub fn iter_mut(&self) -> IterMut<'_, V>
+    /// Iterate mutably over the current contents.
+    ///
+    /// The iterator takes exclusive access to the vec. A value yielded by it
+    /// may outlive the iterator, but cannot outlive the exclusive vec borrow:
+    ///
+    /// ```compile_fail
+    /// use dark_std::sync::SyncVec;
+    ///
+    /// let mut v = SyncVec::from(vec![String::from("old")]);
+    /// let value = v.iter_mut().next().unwrap();
+    /// let alias = v.get(0).unwrap();
+    /// value.clear();
+    /// println!("{alias}");
+    /// ```
+    pub fn iter_mut(&mut self) -> IterMut<'_, V>
     where
         V: Clone,
     {
-        let m = unsafe { &mut *self.dirty.get() };
+        let this: &Self = self;
+        let m = unsafe { &mut *this.dirty.get() };
         IterMut {
-            m: self,
-            _g: self.lock.lock(),
+            m: this,
+            _g: this.lock.lock(),
             inner: Some(m.iter_mut()),
             visited: false,
         }
@@ -708,7 +723,7 @@ mod tests {
 
     #[test]
     fn dropped_unused_iter_mut_does_not_retire_snapshots() {
-        let v = SyncVec::with_vec(vec![1, 2, 3]);
+        let mut v = SyncVec::with_vec(vec![1, 2, 3]);
         assert_eq!(v.iter().count(), 3);
         let retired = v.read.retired_len();
         for _ in 0..16 {
@@ -719,7 +734,7 @@ mod tests {
 
     #[test]
     fn iter_mut_publishes_mutations() {
-        let v = SyncVec::with_vec(vec![1, 2, 3]);
+        let mut v = SyncVec::with_vec(vec![1, 2, 3]);
         for x in v.iter_mut() {
             *x *= 10;
         }

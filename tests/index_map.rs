@@ -176,7 +176,7 @@ pub fn test_iter() {
 
 #[test]
 pub fn test_iter_mut() {
-    let m = SyncIndexMap::<i32, i32>::new();
+    let mut m = SyncIndexMap::<i32, i32>::new();
     m.insert(1, 2);
     for (k, v) in m.iter_mut() {
         assert_eq!(*k, 1);
